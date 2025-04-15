@@ -5,6 +5,7 @@ import org.lwjgl.system.MemoryUtil
 import org.lwjgl.vulkan.VK10.*
 import org.lwjgl.vulkan.VkDevice
 import org.lwjgl.vulkan.VkShaderModuleCreateInfo
+import java.io.File
 import java.nio.ByteBuffer
 
 /**
@@ -42,11 +43,15 @@ object ShaderUtils {
      * @return Handle to the created shader module
      */
     fun loadShader(device: VkDevice, resourcePath: String): Long {
-        val shaderBytes = VulkanUtils.readFile(resourcePath)
+        val shaderBytes = readShaderFile(resourcePath)
         val shaderBuffer = MemoryUtil.memAlloc(shaderBytes.size)
         
         try {
-            shaderBuffer.put(shaderBytes).flip()
+            // Put the shader bytes into the byte buffer
+            for (i in shaderBytes.indices) {
+                shaderBuffer.put(i, shaderBytes[i])
+            }
+            
             return createShaderModule(device, shaderBuffer)
         } finally {
             MemoryUtil.memFree(shaderBuffer)
@@ -54,10 +59,31 @@ object ShaderUtils {
     }
     
     /**
-     * Compiles a GLSL shader to SPIR-V using shaderc.
-     * Note: This requires the shaderc extension to be properly set up.
+     * Read shader file from resources
      * 
-     * This is just a placeholder - actual implementation would require shaderc.
+     * @param resourcePath Path to the shader file in resources
+     * @return ByteArray containing the shader file content
+     */
+    fun readShaderFile(resourcePath: String): ByteArray {
+        val classLoader = Thread.currentThread().contextClassLoader
+        val inputStream = classLoader.getResourceAsStream(resourcePath)
+            ?: throw RuntimeException("Failed to load shader file: $resourcePath")
+        
+        return inputStream.readBytes()
+    }
+    
+    /**
+     * Read shader file from filesystem
+     * 
+     * @param filePath Path to the shader file
+     * @return ByteArray containing the shader file content
+     */
+    fun readFile(filePath: String): ByteArray {
+        return File(filePath).readBytes()
+    }
+    
+    /**
+     * Compiles a GLSL shader to SPIR-V using external process.
      * 
      * @param shaderCode GLSL shader code
      * @param shaderType Type of shader (vertex, fragment, etc.)
@@ -65,7 +91,6 @@ object ShaderUtils {
      * @return ByteBuffer containing SPIR-V bytecode
      */
     fun compileShader(shaderCode: String, shaderType: Int, fileName: String): ByteBuffer {
-        // This would be implemented with shaderc
-        throw NotImplementedError("Shader compilation not implemented yet")
+        return it.filippocavallari.cubicworld.utils.ShaderCompiler.compileShader(shaderCode, shaderType, fileName)
     }
 }

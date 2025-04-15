@@ -103,7 +103,7 @@ class ChunkMeshBuilder(
     /**
      * Generate mesh data for a chunk using greedy meshing
      */
-    private fun generateMeshData(chunk: Chunk): ChunkMeshData {
+    fun generateMeshData(chunk: Chunk): ChunkMeshData {
         // Data buffers for solid blocks
         val solidVertices = ArrayList<Float>(ESTIMATED_VERTICES_CAPACITY)
         val solidIndices = ArrayList<Int>(ESTIMATED_INDICES_CAPACITY)

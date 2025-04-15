@@ -19,6 +19,27 @@ object TextureAtlasLoader {
     private var textureResources: VulkanTextureResources? = null
     
     /**
+     * Load and stitch textures from a directory
+     *
+     * @param textureDir Directory containing textures
+     * @param outputDir Directory to save stitched textures
+     * @param textureSize Size of each texture in atlas
+     * @return The texture stitcher with loaded textures
+     */
+    fun loadAndStitchTextures(textureDir: String, outputDir: String, textureSize: Int = 128): TextureStitcher {
+        val stitcher = TextureStitcher(textureDir)
+        try {
+            stitcher.build(textureSize)
+            stitcher.saveAtlases(outputDir)
+            println("Successfully loaded and stitched textures from $textureDir to $outputDir")
+        } catch (e: Exception) {
+            println("Warning: Error stitching textures: ${e.message}")
+            e.printStackTrace()
+        }
+        return stitcher
+    }
+    
+    /**
      * Legacy method for OpenGL compatibility.
      * 
      * @param stitcher The texture stitcher containing the atlases
