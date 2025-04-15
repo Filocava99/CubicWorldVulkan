@@ -1,0 +1,48 @@
+{
+  "parent": "block/block",
+  "ambientocclusion": false,
+  "textures": {
+    "stem": "block/cactus_side",
+    "top": "block/cactus_top"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "down": {
+          "texture": "#top",
+          "cullface": "down"
+        },
+        "up": {
+          "texture": "#top",
+          "cullface": "up"
+        }
+      }
+    },
+    {
+      "from": [0, 0, 1],
+      "to": [16, 16, 15],
+      "faces": {
+        "north": {
+          "texture": "#stem"
+        },
+        "south": {
+          "texture": "#stem"
+        }
+      }
+    },
+    {
+      "from": [1, 0, 0],
+      "to": [15, 16, 16],
+      "faces": {
+        "west": {
+          "texture": "#stem"
+        },
+        "east": {
+          "texture": "#stem"
+        }
+      }
+    }
+  ]
+}
