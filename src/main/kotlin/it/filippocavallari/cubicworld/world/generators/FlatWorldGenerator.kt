@@ -63,7 +63,13 @@ class FlatWorldGenerator : WorldGenerator {
         // Occasionally add flowers
         if (randomValue > 0.97) {
             // Add a flower on the grass
-            chunk.setBlock(x, GRASS_LEVEL + 1, z, BlockType.getById(37 + (randomValue * 10).toInt() % 9).id)
+            // Using existing block types for decoration (randomly choosing between a few types)
+            val decorationBlock = when ((randomValue * 10).toInt() % 3) {
+                0 -> BlockType.LEAVES_OAK
+                1 -> BlockType.DIAMOND_ORE  // Using ore blocks for colorful decoration
+                else -> BlockType.GOLD_ORE
+            }
+            chunk.setBlock(x, GRASS_LEVEL + 1, z, decorationBlock.id)
         }
     }
     

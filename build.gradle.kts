@@ -41,6 +41,7 @@ dependencies {
     implementation("org.lwjgl:lwjgl-vulkan")
     implementation("org.lwjgl:lwjgl-shaderc")
     implementation("org.lwjgl:lwjgl-openal")
+    implementation("org.lwjgl:lwjgl-vma")
     
     // LWJGL native libraries
     runtimeOnly("org.lwjgl:lwjgl::$lwjglNatives")
@@ -49,6 +50,7 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl-stb::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-shaderc::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-openal::$lwjglNatives")
+    runtimeOnly("org.lwjgl:lwjgl-vma::$lwjglNatives")
     if (lwjglNatives == "natives-macos" || lwjglNatives == "natives-macos-arm64") {
         runtimeOnly("org.lwjgl:lwjgl-vulkan::$lwjglNatives")
     }
@@ -59,6 +61,11 @@ dependencies {
     
     // Gson for JSON parsing
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("io.github.spair:imgui-java-natives-windows:1.89.0")
+    implementation("io.github.spair:imgui-java-binding:1.89.0")
+    implementation("io.github.spair:imgui-java-lwjgl3:1.89.0")
+    implementation("org.tinylog:tinylog-api:2.8.0-M1")
+    implementation("org.tinylog:tinylog-impl:2.8.0-M1")
 }
 
 tasks.test {
@@ -68,7 +75,7 @@ tasks.test {
 // Source sets configuration for Kotlin
 sourceSets {
     main {
-        java.srcDirs()  // Empty the Java source directories
+        java.srcDirs("src/main/java")  // Empty the Java source directories
         kotlin.srcDirs("src/main/kotlin")
         resources.srcDirs("src/main/resources")
     }
@@ -92,7 +99,7 @@ tasks.register("createKotlinDirs") {
 
 // Skip Java compilation entirely
 tasks.named<JavaCompile>("compileJava") {
-    enabled = false
+    enabled = true
 }
 
 tasks.named<JavaCompile>("compileTestJava") {

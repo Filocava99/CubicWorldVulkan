@@ -1,12 +1,13 @@
 package it.filippocavallari.cubicworld.world.chunk
 
 import it.filippocavallari.cubicworld.data.block.BlockType
+import it.filippocavallari.cubicworld.world.World
 import org.joml.Vector2i
 
 /**
  * Represents a chunk of the world, containing a 16x256x16 grid of blocks.
  */
-class Chunk(x: Int, z: Int) {
+class Chunk(x: Int, z: Int, val world: World? = null) {
     // Position of this chunk in the world (in chunk coordinates)
     val position: Vector2i = Vector2i(x, z)
     

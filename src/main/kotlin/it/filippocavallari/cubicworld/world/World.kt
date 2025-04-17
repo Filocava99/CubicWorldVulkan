@@ -32,6 +32,37 @@ class World(
     private val chunkListeners: MutableList<ChunkListener> = ArrayList()
     
     /**
+     * Load initial chunks synchronously
+     * This is used during startup to ensure at least one chunk is fully loaded
+     * before rendering begins
+     */
+    fun loadChunkSynchronously(x: Int, z: Int): Chunk {
+        val position = Vector2i(x, z)
+        
+        // Check if chunk is already loaded
+        chunksMap[position]?.let { return it }
+        
+        // Create a new chunk
+        val chunk = Chunk(x, z, this)
+        chunksMap[position] = chunk
+        
+        // Generate the chunk synchronously
+        try {
+            generator.generateChunk(chunk)
+            
+            // Notify listeners that chunk is loaded
+            for (listener in chunkListeners) {
+                listener.onChunkLoaded(chunk)
+            }
+        } catch (e: Exception) {
+            System.err.println("Error generating chunk at $x, $z: ${e.message}")
+            e.printStackTrace()
+        }
+        
+        return chunk
+    }
+    
+    /**
      * Load a chunk at the specified position
      */
     fun loadChunk(x: Int, z: Int): Chunk {
@@ -41,7 +72,7 @@ class World(
         chunksMap[position]?.let { return it }
         
         // Create a new chunk
-        val chunk = Chunk(x, z)
+        val chunk = Chunk(x, z, this)
         chunksMap[position] = chunk
         
         // Generate the chunk in a separate thread
@@ -64,6 +95,20 @@ class World(
         chunkGenerationTasks[position] = task
         
         return chunk
+    }
+    
+    /**
+     * Add a pre-generated chunk directly to the world
+     * This is for test chunks and debugging
+     */
+    fun addChunkDirectly(chunk: Chunk) {
+        val position = chunk.position
+        chunksMap[position] = chunk
+        
+        // Notify listeners that chunk is loaded
+        for (listener in chunkListeners) {
+            listener.onChunkLoaded(chunk)
+        }
     }
     
     /**
@@ -98,6 +143,8 @@ class World(
      * Get a block at the specified world position
      */
     fun getBlock(x: Int, y: Int, z: Int): Int {
+        // Check y bounds first
+        if (y < 0 || y >= Chunk.HEIGHT) return 0
         // Convert to chunk coordinates
         val chunkX = Chunk.worldToChunk(x)
         val chunkZ = Chunk.worldToChunk(z)
@@ -110,6 +157,13 @@ class World(
         val localZ = Chunk.worldToLocal(z)
         
         return chunk.getBlock(localX, y, localZ)
+    }
+    
+    /**
+     * Get the block type of a block at the specified world position
+     */
+    fun getBlockType(x: Int, y: Int, z: Int): Int {
+        return getBlock(x, y, z)
     }
     
     /**
