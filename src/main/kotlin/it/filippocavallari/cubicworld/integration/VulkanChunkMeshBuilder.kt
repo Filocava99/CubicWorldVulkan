@@ -2,6 +2,7 @@ package it.filippocavallari.cubicworld.integration
 
 import it.filippocavallari.cubicworld.data.block.BlockType
 import it.filippocavallari.cubicworld.data.block.FaceDirection
+import it.filippocavallari.cubicworld.textures.TextureManager
 import it.filippocavallari.cubicworld.textures.TextureStitcher
 import it.filippocavallari.cubicworld.world.chunk.Chunk
 import org.joml.Vector4f
@@ -13,6 +14,11 @@ import java.util.*
  * This class converts the voxel data into vertex data suitable for rendering with Vulkan.
  */
 class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
+    
+    init {
+        // Initialize the TextureManager with the TextureStitcher
+        TextureManager.initialize(textureStitcher)
+    }
     
     // Mesh data lists
     private val positions = ArrayList<Float>()
@@ -85,10 +91,25 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         val materialList = ArrayList<ModelData.Material>()
         
         // Default material - references texture atlas
+        // Ensure paths to atlas files are absolute and correct
+        val diffuseAtlasPath = "${System.getProperty("user.dir")}/src/main/resources/atlas/diffuse_atlas.png"  
+        val normalAtlasPath = "${System.getProperty("user.dir")}/src/main/resources/atlas/normal_atlas.png"
+        val specularAtlasPath = "${System.getProperty("user.dir")}/src/main/resources/atlas/specular_atlas.png"
+        
+        // Verify files exist
+        val diffuseFile = java.io.File(diffuseAtlasPath)
+        val normalFile = java.io.File(normalAtlasPath)
+        val specularFile = java.io.File(specularAtlasPath)
+        
+        println("Atlas files exist check:")
+        println("Diffuse atlas: ${diffuseFile.exists()} (size: ${if (diffuseFile.exists()) diffuseFile.length() else 0} bytes)")
+        println("Normal atlas: ${normalFile.exists()} (size: ${if (normalFile.exists()) normalFile.length() else 0} bytes)")
+        println("Specular atlas: ${specularFile.exists()} (size: ${if (specularFile.exists()) specularFile.length() else 0} bytes)")
+        
         materialList.add(ModelData.Material(
-            "src/main/resources/atlas/diffuse_atlas.png",  // Texture path
-            "src/main/resources/atlas/normal_atlas.png",   // Normal map path
-            "src/main/resources/atlas/specular_atlas.png", // Specular map path
+            diffuseAtlasPath,  // Absolute texture path
+            normalAtlasPath,   // Absolute normal map path
+            specularAtlasPath, // Absolute specular map path
             Vector4f(1.0f, 1.0f, 1.0f, 1.0f), // Default color
             0.5f,                 // Roughness
             0.0f                  // Metallic factor
@@ -224,6 +245,10 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
      * @return true if face is visible
      */
     private fun isBlockFaceVisible(chunk: Chunk, x: Int, y: Int, z: Int): Boolean {
+        // If y is out of bounds, handle appropriately
+        if (y < 0) return false  // No blocks below bedrock
+        if (y >= Chunk.HEIGHT) return true  // Air above max height
+        
         // If position is outside the chunk, get block from neighboring chunk
         if (x < 0 || x >= Chunk.SIZE || z < 0 || z >= Chunk.SIZE) {
             // Convert to world coordinates
@@ -232,15 +257,16 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
             
             // Get the block from the world (may return 0 if chunk not loaded)
             val blockType = chunk.world?.getBlockType(worldX, y, worldZ) ?: 0
+            
+            // Debug print to help diagnose cross-chunk visibility
+            println("Cross-chunk check at ($x, $y, $z): blockType=$blockType")
+            
             return blockType == 0 || isTransparent(blockType)
         }
         
-        // If y is out of bounds, return visible for y < 0 and invisible for y > max
-        if (y < 0) return false  // No blocks below bedrock
-        if (y >= Chunk.HEIGHT) return true  // Air above max height
-        
         // Check if the adjacent block is air or transparent
-        return chunk.getBlock(x, y, z) == 0 || isTransparent(chunk.getBlock(x, y, z))
+        val blockType = chunk.getBlock(x, y, z)
+        return blockType == 0 || isTransparent(blockType)
     }
     
     /**
@@ -276,31 +302,62 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         // Get the block type
         val blockType = BlockType.fromId(blockId)
         
-        // Get texture ID for this face
+        // Map the block ID and face to the correct texture index from TextureManager
         val textureId = when (face) {
-            FaceDirection.UP -> blockType.topTextureIndex
-            FaceDirection.DOWN -> blockType.bottomTextureIndex
-            else -> blockType.sideTextureIndex
+            FaceDirection.UP -> {
+                // Different blocks have different top textures
+                when (blockId) {
+                    BlockType.GRASS.id -> TextureManager.getTextureIndex("grass_top")
+                    BlockType.LOG_OAK.id -> TextureManager.getTextureIndex("log_oak_top")
+                    else -> TextureManager.getTextureIndex(getBlockTextureName(blockId))
+                }
+            }
+            FaceDirection.DOWN -> {
+                // Different blocks have different bottom textures
+                when (blockId) {
+                    BlockType.GRASS.id -> TextureManager.getTextureIndex("grass_bottom")
+                    BlockType.LOG_OAK.id -> TextureManager.getTextureIndex("log_oak_top")
+                    else -> TextureManager.getTextureIndex(getBlockTextureName(blockId))
+                }
+            }
+            else -> {
+                // Side textures can also vary by block
+                when (blockId) {
+                    BlockType.GRASS.id -> TextureManager.getTextureIndex("grass_side")
+                    BlockType.LOG_OAK.id -> TextureManager.getTextureIndex("log_oak_side")
+                    else -> TextureManager.getTextureIndex(getBlockTextureName(blockId))
+                }
+            }
         }
         
-        // Get texture region from texture atlas
+        // Debug output for stone block
+        if (blockId == BlockType.STONE.id) {
+            println("DEBUG: Creating stone block face (${face.name}) with texture ID: $textureId")
+        }
+        
+        // Get texture region from texture atlas using the managed texture ID
         val region = textureStitcher.getTextureRegion(textureId)
+        
+        // Debug output for texture coordinates
+        if (blockId == BlockType.STONE.id) {
+            println("DEBUG: Stone texture region: u1=${region.u1}, v1=${region.v1}, u2=${region.u2}, v2=${region.v2}")
+        }
         
         // Get vertex positions and normals based on face direction
         when (face) {
             FaceDirection.UP -> {
-                // Top face (Y+)
-                addVertex(x, y + 1, z, region.u1, region.v2, normalUp)
-                addVertex(x + 1, y + 1, z, region.u2, region.v2, normalUp)
-                addVertex(x + 1, y + 1, z + 1, region.u2, region.v1, normalUp)
-                addVertex(x, y + 1, z + 1, region.u1, region.v1, normalUp)
+                // Top face (Y+) - Fixed UV mapping orientation
+                addVertex(x, y + 1, z, region.u1, region.v1, normalUp)
+                addVertex(x + 1, y + 1, z, region.u2, region.v1, normalUp)
+                addVertex(x + 1, y + 1, z + 1, region.u2, region.v2, normalUp)
+                addVertex(x, y + 1, z + 1, region.u1, region.v2, normalUp)
             }
             FaceDirection.DOWN -> {
-                // Bottom face (Y-)
-                addVertex(x, y, z, region.u1, region.v1, normalDown)
-                addVertex(x, y, z + 1, region.u1, region.v2, normalDown)
-                addVertex(x + 1, y, z + 1, region.u2, region.v2, normalDown)
-                addVertex(x + 1, y, z, region.u2, region.v1, normalDown)
+                // Bottom face (Y-) - Fixed UV mapping orientation
+                addVertex(x, y, z, region.u1, region.v2, normalDown)
+                addVertex(x, y, z + 1, region.u1, region.v1, normalDown)
+                addVertex(x + 1, y, z + 1, region.u2, region.v1, normalDown)
+                addVertex(x + 1, y, z, region.u2, region.v2, normalDown)
             }
             FaceDirection.NORTH -> {
                 // North face (Z-)
@@ -396,6 +453,31 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         indices.add(vertexIndex)
         indices.add(vertexIndex + 2)
         indices.add(vertexIndex + 3)
+    }
+    
+    /**
+     * Get the block texture name based on block ID
+     */
+    private fun getBlockTextureName(blockId: Int): String {
+        return when (blockId) {
+            BlockType.STONE.id -> "stone"
+            BlockType.DIRT.id -> "dirt"
+            BlockType.GRASS.id -> "grass_side" // Default side texture
+            BlockType.COBBLESTONE.id -> "cobblestone"
+            BlockType.BEDROCK.id -> "bedrock"
+            BlockType.SAND.id -> "sand"
+            BlockType.GRAVEL.id -> "gravel"
+            BlockType.LOG_OAK.id -> "log_oak_side" // Default side texture
+            BlockType.LEAVES_OAK.id -> "leaves_oak"
+            BlockType.COAL_ORE.id -> "coal_ore"
+            BlockType.IRON_ORE.id -> "iron_ore"
+            BlockType.GOLD_ORE.id -> "gold_ore"
+            BlockType.DIAMOND_ORE.id -> "diamond_ore"
+            BlockType.REDSTONE_ORE.id -> "redstone_ore"
+            BlockType.LAPIS_ORE.id -> "lapis_ore"
+            BlockType.WATER.id -> "water"
+            else -> "stone" // Fallback
+        }
     }
     
     /**

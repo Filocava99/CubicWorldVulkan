@@ -69,15 +69,16 @@ class VulkanIntegration {
      * Create a minimal texture stitcher with basic placeholders
      */
     private fun createMinimalTextureStitcher(): TextureStitcher {
-        val textureDir = "src/main/resources/textures"
+        val textureDir = "${System.getProperty("user.dir")}/src/main/resources/textures"
         val stitcher = TextureStitcher(textureDir)
         
         try {
             // Initialize the texture stitcher with a tile size of 16x16
-            stitcher.build(16)
+            // Using a more standard size like 64 or 128
+            stitcher.build(64)
             
             // Create the atlas directory if it doesn't exist
-            val outputDir = "src/main/resources/atlas"
+            val outputDir = "${System.getProperty("user.dir")}/src/main/resources/atlas"
             val outputDirFile = java.io.File(outputDir)
             if (!outputDirFile.exists()) {
                 outputDirFile.mkdirs()
@@ -85,6 +86,24 @@ class VulkanIntegration {
             
             // Save the atlases
             stitcher.saveAtlases(outputDir)
+            
+            // Verify the textures have been created
+            val diffuseAtlas = java.io.File("$outputDir/diffuse_atlas.png")
+            val normalAtlas = java.io.File("$outputDir/normal_atlas.png")
+            val specularAtlas = java.io.File("$outputDir/specular_atlas.png")
+            
+            println("Texture atlas files created:")
+            println("Diffuse atlas exists: ${diffuseAtlas.exists()} (size: ${if (diffuseAtlas.exists()) diffuseAtlas.length() else 0} bytes)")
+            println("Normal atlas exists: ${normalAtlas.exists()} (size: ${if (normalAtlas.exists()) normalAtlas.length() else 0} bytes)")
+            println("Specular atlas exists: ${specularAtlas.exists()} (size: ${if (specularAtlas.exists()) specularAtlas.length() else 0} bytes)")
+            
+            // Debug mapping for stone texture
+            val stoneIndex = stitcher.getTextureIndex("stone")
+            println("Stone texture index: $stoneIndex")
+            if (stoneIndex >= 0) {
+                val region = stitcher.getTextureRegion(stoneIndex)
+                println("Stone texture region: u1=${region.u1}, v1=${region.v1}, u2=${region.u2}, v2=${region.v2}")
+            }
             
             println("Created and saved minimal texture atlas")
         } catch (e: Exception) {
@@ -204,6 +223,8 @@ class VulkanIntegration {
      */
     @Synchronized
     fun createChunkMesh(chunk: Chunk): String {
+        println("Building mesh for chunk at (${chunk.position.x}, ${chunk.position.y})")
+        
         // Generate a mesh from the chunk data
         val modelData = chunkMeshBuilder.buildMesh(chunk)
         
@@ -211,6 +232,8 @@ class VulkanIntegration {
         if (modelData.meshDataList.isEmpty() || modelData.meshDataList[0].positions.size == 0) {
             println("Skipping empty chunk mesh")
             return ""
+        } else {
+            println("Mesh generated with ${modelData.meshDataList[0].positions.size / 3} vertices")
         }
         
         // Get a unique ID for this chunk
@@ -220,7 +243,6 @@ class VulkanIntegration {
         chunkMeshCache[chunkId] = modelData
         
         // Check if entity already exists
-        // Check if entity exists in the scene
         val entities = vulkanScene.getEntitiesByModelId(modelData.modelId)
         val existingEntity = entities?.find { it.getId() == chunkId }
         if (existingEntity != null) {
@@ -233,10 +255,12 @@ class VulkanIntegration {
         println("Loading chunk model with ID: ${modelData.modelId}")
         vulkanRender.loadModels(listOf(modelData))
         
-        // Create entity for this chunk
+        // Create entity for this chunk with correct world position
         val worldX = chunk.getWorldX().toFloat()
         val worldZ = chunk.getWorldZ().toFloat()
         val entity = Entity(chunkId, modelData.modelId, Vector3f(worldX, 0.0f, worldZ))
+        
+        println("Placing chunk entity at world position: ($worldX, 0.0, $worldZ)")
         
         // Add entity to scene
         vulkanScene.addEntity(entity)

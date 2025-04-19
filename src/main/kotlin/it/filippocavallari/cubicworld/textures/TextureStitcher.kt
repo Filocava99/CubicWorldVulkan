@@ -21,6 +21,7 @@ class TextureStitcher(folderPath: String) {
     private lateinit var normalAtlas: BufferedImage
     private lateinit var specularAtlas: BufferedImage
     private val textureRegions: MutableMap<Int, TextureRegion> = HashMap()
+    private val textureNameToIndex: MutableMap<String, Int> = HashMap()
     private val fileNamePattern: Pattern
     
     // Texture sizes and metadata
@@ -34,8 +35,8 @@ class TextureStitcher(folderPath: String) {
         private set
     
     init {
-        // Pattern to match base textures (not ending with _n or _s)
-        this.fileNamePattern = Pattern.compile("^(.+?)(?<!_n)(?<!_s)\\.(png|jpg)$")
+        // Simple pattern to match PNG and JPG files
+        this.fileNamePattern = Pattern.compile("^(.+)\\.(png|jpg)$", Pattern.CASE_INSENSITIVE)
     }
     
     /**
@@ -81,15 +82,35 @@ class TextureStitcher(folderPath: String) {
      */
     @Throws(IOException::class)
     private fun findBaseTextureFiles(): List<File> {
-        return Files.walk(sourceFolderPath, 1)
+        println("Searching for texture files in $sourceFolderPath...")
+        
+        // Get all image files (PNG and JPG), excluding normal and specular maps
+        val allImageFiles = Files.walk(sourceFolderPath)
             .filter(Files::isRegularFile)
             .map { it.toFile() }
             .filter { file ->
-                val matcher = fileNamePattern.matcher(file.name)
-                matcher.matches()
+                val name = file.name.lowercase()
+                (name.endsWith(".png") || name.endsWith(".jpg")) && 
+                !name.endsWith("_n.png") && !name.endsWith("_n.jpg") && 
+                !name.endsWith("_s.png") && !name.endsWith("_s.jpg")
             }
             .sorted(Comparator.comparing { it.name })
             .collect(Collectors.toList())
+        
+        println("Found ${allImageFiles.size} base texture files")
+        
+        // Log the first few and last few files to help with debugging
+        if (allImageFiles.isNotEmpty()) {
+            println("First 5 textures:")
+            allImageFiles.take(5).forEach { println("  ${it.name}") }
+            
+            if (allImageFiles.size > 10) {
+                println("Last 5 textures:")
+                allImageFiles.takeLast(5).forEach { println("  ${it.name}") }
+            }
+        }
+        
+        return allImageFiles
     }
     
     /**
@@ -107,6 +128,28 @@ class TextureStitcher(folderPath: String) {
         // Ensure dimensions are power of 2 for optimal GPU performance
         atlasWidth = nextPowerOfTwo(atlasWidth)
         atlasHeight = nextPowerOfTwo(atlasHeight)
+        
+        // Verify the dimensions are sufficient
+        val texPerRow = atlasWidth / textureSize
+        val texPerCol = atlasHeight / textureSize
+        val totalCapacity = texPerRow * texPerCol
+        
+        if (totalCapacity < totalTextures) {
+            // If we can't fit all textures, increase the dimensions
+            println("Warning: Calculated atlas dimensions too small for $totalTextures textures")
+            println("  Initial dimensions: ${atlasWidth}x${atlasHeight} (capacity: $totalCapacity)")
+            
+            // Double the height until we have enough space
+            while (texPerRow * (atlasHeight / textureSize) < totalTextures) {
+                atlasHeight *= 2
+            }
+            
+            println("  Adjusted dimensions: ${atlasWidth}x${atlasHeight} (new capacity: ${texPerRow * (atlasHeight / textureSize)})")
+        }
+        
+        println("Atlas dimensions: ${atlasWidth}x${atlasHeight}")
+        println("Textures per row: $texturesPerRow")
+        println("Total capacity: ${(atlasWidth / textureSize) * (atlasHeight / textureSize)} textures")
     }
     
     /**
@@ -183,6 +226,10 @@ class TextureStitcher(folderPath: String) {
         val normalGraphics = normalAtlas.createGraphics()
         val specularGraphics = specularAtlas.createGraphics()
         
+        println("Populating atlas with ${baseTextureFiles.size} textures")
+        var normalMapsFound = 0
+        var specularMapsFound = 0
+        
         for (i in baseTextureFiles.indices) {
             val baseFile = baseTextureFiles[i]
             val baseName = baseFile.name
@@ -201,24 +248,80 @@ class TextureStitcher(folderPath: String) {
             val v2 = (y + textureSize).toFloat() / atlasHeight
             textureRegions[i] = TextureRegion(u1, v1, u2, v2)
             
-            // Load and draw diffuse texture
-            val diffuseImage = loadAndResizeImage(baseFile)
-            diffuseGraphics.drawImage(diffuseImage, x, y, textureSize, textureSize, null)
-            
-            // Load and draw normal map
-            val normalFile = File(baseFile.parent, "${baseNameWithoutExtension}_n.png")
-            if (normalFile.exists()) {
-                val normalImage = loadAndResizeImage(normalFile)
-                normalGraphics.drawImage(normalImage, x, y, textureSize, textureSize, null)
-            }
-            
-            // Load and draw specular map
-            val specularFile = File(baseFile.parent, "${baseNameWithoutExtension}_s.png")
-            if (specularFile.exists()) {
-                val specularImage = loadAndResizeImage(specularFile)
-                specularGraphics.drawImage(specularImage, x, y, textureSize, textureSize, null)
+            try {
+                // Store texture name to index mapping
+                // First try to extract texture category (like "block/") from the relative path
+                val relativeFilePath = sourceFolderPath.relativize(baseFile.toPath().parent)
+                val category = if (relativeFilePath.toString().isEmpty()) "" else "${relativeFilePath}/"
+                
+                // Get the filename without extension
+                val textureNameWithExt = baseNameWithoutExtension
+                val texturePath = "${category.replace('\\', '/')}${baseNameWithoutExtension}"
+                
+                // Debug output for stone texture
+                if (baseNameWithoutExtension == "stone") {
+                    println("DEBUG: Found stone texture at index $i")
+                    println("  - Filename: ${baseFile.name}")
+                    println("  - Path: ${baseFile.absolutePath}")
+                    println("  - Mapped names:")
+                    println("    * ${baseNameWithoutExtension} -> $i")
+                    println("    * ${texturePath} -> $i")
+                    println("    * block/${baseNameWithoutExtension} -> $i")
+                }
+                
+                // Map raw name (e.g., "stone")
+                textureNameToIndex[baseNameWithoutExtension] = i
+                
+                // Map full path (e.g., "block/stone")
+                if (texturePath.isNotEmpty()) {
+                    textureNameToIndex[texturePath] = i
+                }
+                
+                // Map with block/ prefix for textures in root folder
+                if (category.isEmpty()) {
+                    textureNameToIndex["block/${baseNameWithoutExtension}"] = i
+                }
+                
+                // Also map with "minecraft:" prefix for compatibility
+                textureNameToIndex["minecraft:${texturePath}"] = i
+                if (category.isEmpty()) {
+                    textureNameToIndex["minecraft:block/${baseNameWithoutExtension}"] = i
+                }
+                
+                // Load and draw diffuse texture
+                val diffuseImage = loadAndResizeImage(baseFile)
+                diffuseGraphics.drawImage(diffuseImage, x, y, textureSize, textureSize, null)
+                
+                // Load and draw normal map
+                val normalFile = File(baseFile.parent, "${baseNameWithoutExtension}_n.png")
+                if (normalFile.exists()) {
+                    val normalImage = loadAndResizeImage(normalFile)
+                    normalGraphics.drawImage(normalImage, x, y, textureSize, textureSize, null)
+                    normalMapsFound++
+                }
+                
+                // Load and draw specular map
+                val specularFile = File(baseFile.parent, "${baseNameWithoutExtension}_s.png")
+                if (specularFile.exists()) {
+                    val specularImage = loadAndResizeImage(specularFile)
+                    specularGraphics.drawImage(specularImage, x, y, textureSize, textureSize, null)
+                    specularMapsFound++
+                }
+                
+                // Progress reporting for large texture sets
+                if (i > 0 && i % 100 == 0) {
+                    println("Processed ${i}/${baseTextureFiles.size} textures (${(i.toFloat() / baseTextureFiles.size * 100).toInt()}%)")
+                }
+            } catch (e: Exception) {
+                println("Warning: Error processing texture ${baseFile.name}: ${e.message}")
+                // Continue with the next texture rather than failing completely
             }
         }
+        
+        println("Atlas population complete")
+        println("  Normal maps found: $normalMapsFound")
+        println("  Specular maps found: $specularMapsFound")
+        println("  Texture name mappings created: ${textureNameToIndex.size}")
         
         diffuseGraphics.dispose()
         normalGraphics.dispose()
@@ -269,6 +372,89 @@ class TextureStitcher(folderPath: String) {
     }
     
     /**
+     * Get the texture index for a specific texture name.
+     * 
+     * @param textureName The name of the texture (e.g., "stone" or "block/stone")
+     * @return The index of the texture, or -1 if not found
+     */
+    fun getTextureIndex(textureName: String): Int {
+        // First try exact match
+        if (textureNameToIndex.containsKey(textureName)) {
+            return textureNameToIndex[textureName]!!
+        }
+        
+        // For "block/X" format, try just "X"
+        if (textureName.startsWith("block/")) {
+            val simpleTextureName = textureName.substring("block/".length)
+            if (textureNameToIndex.containsKey(simpleTextureName)) {
+                return textureNameToIndex[simpleTextureName]!!
+            }
+        }
+        
+        // Try with "block/" prefix if not already prefixed
+        if (!textureName.contains("/")) {
+            val withBlockPrefix = "block/$textureName"
+            if (textureNameToIndex.containsKey(withBlockPrefix)) {
+                return textureNameToIndex[withBlockPrefix]!!
+            }
+        }
+        
+        // Try without "minecraft:" prefix if it has one
+        if (textureName.startsWith("minecraft:")) {
+            val withoutPrefix = textureName.substring("minecraft:".length)
+            if (textureNameToIndex.containsKey(withoutPrefix)) {
+                return textureNameToIndex[withoutPrefix]!!
+            }
+            
+            // Also try without minecraft: and without block/
+            if (withoutPrefix.startsWith("block/")) {
+                val simpleName = withoutPrefix.substring("block/".length)
+                if (textureNameToIndex.containsKey(simpleName)) {
+                    return textureNameToIndex[simpleName]!!
+                }
+            }
+        }
+        
+        // Try by extracting just the base name (after last slash if present)
+        val baseName = if (textureName.contains("/")) 
+            textureName.substring(textureName.lastIndexOf('/') + 1) 
+            else textureName
+            
+        if (textureNameToIndex.containsKey(baseName)) {
+            return textureNameToIndex[baseName]!!
+        }
+        
+        // Try case-insensitive match as last resort
+        val lowerTextureName = textureName.lowercase()
+        for ((key, value) in textureNameToIndex) {
+            if (key.lowercase() == lowerTextureName) {
+                return value
+            }
+            
+            // Also try base name with case insensitive
+            if (baseName.lowercase() == key.lowercase()) {
+                return value
+            }
+        }
+        
+        // Log the failure and available textures for debugging
+        println("Warning: Texture not found: $textureName")
+        
+        return -1 // Not found
+    }
+    
+    /**
+     * Get the texture region for a specific texture name.
+     * 
+     * @param textureName The name of the texture
+     * @return The texture region containing UV coordinates
+     */
+    fun getTextureRegionByName(textureName: String): TextureRegion {
+        val index = getTextureIndex(textureName)
+        return getTextureRegion(index)
+    }
+    
+    /**
      * Get the atlas image for diffuse textures.
      */
     fun getDiffuseAtlas(): BufferedImage {
@@ -287,6 +473,15 @@ class TextureStitcher(folderPath: String) {
      */
     fun getSpecularAtlas(): BufferedImage {
         return specularAtlas
+    }
+    
+    /**
+     * Get all texture name keys in the mapping.
+     * 
+     * @return A set of all texture name keys
+     */
+    fun getTextureNameKeys(): Set<String> {
+        return textureNameToIndex.keys
     }
     
     /**

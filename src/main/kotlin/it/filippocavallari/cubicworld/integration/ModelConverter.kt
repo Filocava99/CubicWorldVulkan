@@ -31,7 +31,7 @@ object ModelConverter {
         
         // Process each element (cube) in the model
         for (element in model.elements) {
-            processElement(element, textureStitcher, positions, textCoords, normals, tangents, biTangents, indices)
+            processElement(element, textureStitcher, positions, textCoords, normals, tangents, biTangents, indices, model)
         }
         
         // Convert to arrays
@@ -93,7 +93,8 @@ object ModelConverter {
         normals: MutableList<Float>,
         tangents: MutableList<Float>,
         biTangents: MutableList<Float>,
-        indices: MutableList<Int>
+        indices: MutableList<Int>,
+        model: Model  // Added model parameter
     ) {
         // The start index for this element's vertices
         val startIndex = positions.size / 3
@@ -117,7 +118,8 @@ object ModelConverter {
                 0.0f, 0.0f, -1.0f, 
                 face, 
                 textureStitcher,
-                positions, textCoords, normals, tangents, biTangents
+                positions, textCoords, normals, tangents, biTangents,
+                model
             )
         }
         
@@ -130,7 +132,8 @@ object ModelConverter {
                 0.0f, 0.0f, 1.0f, 
                 face, 
                 textureStitcher,
-                positions, textCoords, normals, tangents, biTangents
+                positions, textCoords, normals, tangents, biTangents,
+                model
             )
         }
         
@@ -143,7 +146,8 @@ object ModelConverter {
                 1.0f, 0.0f, 0.0f, 
                 face, 
                 textureStitcher,
-                positions, textCoords, normals, tangents, biTangents
+                positions, textCoords, normals, tangents, biTangents,
+                model
             )
         }
         
@@ -156,7 +160,8 @@ object ModelConverter {
                 -1.0f, 0.0f, 0.0f, 
                 face, 
                 textureStitcher,
-                positions, textCoords, normals, tangents, biTangents
+                positions, textCoords, normals, tangents, biTangents,
+                model
             )
         }
         
@@ -169,7 +174,8 @@ object ModelConverter {
                 0.0f, 1.0f, 0.0f, 
                 face, 
                 textureStitcher,
-                positions, textCoords, normals, tangents, biTangents
+                positions, textCoords, normals, tangents, biTangents,
+                model
             )
         }
         
@@ -182,7 +188,8 @@ object ModelConverter {
                 0.0f, -1.0f, 0.0f, 
                 face, 
                 textureStitcher,
-                positions, textCoords, normals, tangents, biTangents
+                positions, textCoords, normals, tangents, biTangents,
+                model
             )
         }
         
@@ -216,7 +223,8 @@ object ModelConverter {
         textCoords: MutableList<Float>,
         normals: MutableList<Float>,
         tangents: MutableList<Float>,
-        biTangents: MutableList<Float>
+        biTangents: MutableList<Float>,
+        model: Model  // Added model parameter
     ) {
         // Calculate the four corners of the face
         // Bottom-left
@@ -240,16 +248,39 @@ object ModelConverter {
         positions.add(z + upZ)
         
         // Add texture coordinates
-        if (face.texture != null && face.texture.startsWith("#")) {
-            // Resolve texture reference (remove # prefix)
-            val textureRef = face.texture.substring(1)
-            
-            // Get the texture region from the stitcher
+        if (face.texture.startsWith("#")) {
+            // Get the texture region from the stitcher using the resolved ID
             val textureRegion = if (face.textureId >= 0) {
                 textureStitcher.getTextureRegion(face.textureId)
             } else {
-                // Use first texture as fallback
-                textureStitcher.getTextureRegion(0)
+                // If textureId is not set, try to get it directly from the texture path
+                if (face.texture.startsWith("#")) {
+                    val key = face.texture.substring(1)
+                    val modelTexturePath = model.textures[key]
+                    if (modelTexturePath != null && !modelTexturePath.startsWith("#")) {
+                        val index = textureStitcher.getTextureIndex(modelTexturePath)
+                        if (index >= 0) {
+                            face.textureId = index  // Update for future reference
+                            textureStitcher.getTextureRegion(index)
+                        } else {
+                            // println("Fallback: Texture not found: ${modelTexturePath} for model ${model.id}")
+                            textureStitcher.getTextureRegion(0)
+                        }
+                    } else {
+                        // println("Fallback: Invalid texture reference: ${face.texture} for model ${model.id}")
+                        textureStitcher.getTextureRegion(0)
+                    }
+                } else {
+                    // Direct texture path (rare case)
+                    val index = textureStitcher.getTextureIndex(face.texture)
+                    if (index >= 0) {
+                        face.textureId = index  // Update for future reference
+                        textureStitcher.getTextureRegion(index)
+                    } else {
+                        // println("Fallback: Texture not found: ${face.texture} for model ${model.id}")
+                        textureStitcher.getTextureRegion(0)
+                    }
+                }
             }
             
             if (face.uv != null) {

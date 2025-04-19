@@ -80,6 +80,10 @@ class ModelManager(
                 // Set the model ID
                 model.id = getModelId(filePath)
                 
+                // Fix texture paths: block textures should look in the root folder
+                // Modify textures to use correct paths
+                model.fixTexturePaths()
+                
                 // If the model has a parent, load and inherit from it
                 if (model.parent != null) {
                     val parentModel = getOrLoadParentModel(model.parent!!, textureStitcher)

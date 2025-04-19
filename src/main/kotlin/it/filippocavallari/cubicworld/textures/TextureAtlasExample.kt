@@ -14,7 +14,8 @@ object TextureAtlasExample {
             val stitcher = TextureStitcher("C:\\Users\\filip\\Desktop\\CubicWorld\\CubicWorld\\src\\main\\resources\\textures")
             
             // Build the texture atlases (specify the size of each texture in pixels)
-            stitcher.build(128)
+            // Using 64 pixels for better texture quality while maintaining reasonable atlas size
+            stitcher.build(64)
             
             // Save the atlas images (optional)
             stitcher.saveAtlases("C:\\Users\\filip\\Desktop\\CubicWorld\\CubicWorld\\src\\main\\resources\\atlas")

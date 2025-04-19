@@ -62,13 +62,16 @@ class Model {
         // First, resolve any texture references that use the # syntax
         val resolvedTextures = HashMap<String, String>()
         
+        // Log just model ID
+        println("Resolving textures for model: $id")
+        
         for ((key, value) in textures) {
             if (value.startsWith("#")) {
                 // This is a reference to another texture in this model
                 val referencedKey = value.substring(1)
                 
                 if (!textures.containsKey(referencedKey)) {
-                    System.err.println("Warning: Texture reference not found: $referencedKey")
+                    System.err.println("Warning: Texture reference not found: $referencedKey in model $id")
                     continue
                 }
                 
@@ -82,38 +85,72 @@ class Model {
         // Apply resolved references
         textures.putAll(resolvedTextures)
         
+        
         // Now resolve texture paths to actual texture indexes
         for ((key, texturePath) in textures) {
-            // Skip references for now - they should be resolved in the next step
+            // Skip references that weren't resolved
             if (texturePath.startsWith("#")) {
+                System.err.println("Warning: Unresolved texture reference: $texturePath in model $id")
                 continue
             }
             
-            // Convert texture path to an index
-            // The format is typically: "block/stone" or "items/sword"
-            // We'll just use the filename part as a lookup
-            var textureFileName = texturePath
+            // Use the TextureStitcher to look up the index
+            val textureIndex = textureStitcher.getTextureIndex(texturePath)
             
-            if (texturePath.contains("/")) {
-                textureFileName = texturePath.substring(texturePath.lastIndexOf('/') + 1)
+            // Debug output for specific textures
+            if (id?.contains("stone") == true || id?.contains("dirt") == true || id?.contains("grass") == true) {
+                println("DEBUG: Model $id trying to resolve texture '$key' => '$texturePath'")
+                println("  - Result index: $textureIndex")
             }
             
-            // Find the texture index (simplified for now - would need a proper lookup in practice)
-            // This is just a placeholder - in a real implementation you would have a proper lookup
-            // based on the texture name in your atlas
-            val textureIndex = getTextureIndexForName(textureFileName)
-            resolvedTextureIndexes[key] = textureIndex
+            if (textureIndex >= 0) {
+                resolvedTextureIndexes[key] = textureIndex
+                // Only log errors, not successes to reduce output
+                // println("Resolved texture '$key' ($texturePath) to index $textureIndex")
+            } else {
+                System.err.println("Warning: Texture not found in atlas: $texturePath in model $id")
+                // Use a fallback texture (index 0) if available
+                resolvedTextureIndexes[key] = 0
+            }
+        }
+        
+        // Apply these resolved indexes to all faces in the model
+        for (element in elements) {
+            for ((_, face) in element.faces) {
+                if (face.texture.startsWith("#")) {
+                    val textureRef = face.texture.substring(1)
+                    face.textureId = resolvedTextureIndexes.getOrDefault(textureRef, 0)
+                }
+            }
         }
     }
     
     /**
-     * Get the texture index for a given texture name.
-     * This is a placeholder implementation - in a real system,
-     * you would look up the actual index in your texture atlas.
+     * Fix texture paths to handle the potential mismatch between model references and actual texture locations.
+     * This method modifies the textures map to fix common path issues.
      */
-    private fun getTextureIndexForName(textureName: String): Int {
-        // Placeholder - in a real implementation you would look up the
-        // actual texture in your atlas based on the name
-        return textureName.hashCode() % 100 // Just for demonstration
+    fun fixTexturePaths() {
+        val fixedTextures = HashMap<String, String>()
+        
+        for ((key, value) in textures) {
+            // Skip reference textures (they'll be resolved later)
+            if (value.startsWith("#")) {
+                fixedTextures[key] = value
+                continue
+            }
+            
+            // Handle block/ prefix - look for files in the root folder
+            if (value.startsWith("block/")) {
+                val simpleTextureName = value.substring("block/".length)
+                fixedTextures[key] = simpleTextureName
+                println("Fixed texture path: $value -> $simpleTextureName for model $id")
+            } else {
+                fixedTextures[key] = value
+            }
+        }
+        
+        // Update the textures map
+        textures.clear()
+        textures.putAll(fixedTextures)
     }
 }
