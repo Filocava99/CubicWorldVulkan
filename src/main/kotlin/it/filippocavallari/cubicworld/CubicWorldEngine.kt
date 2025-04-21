@@ -278,12 +278,16 @@ class CubicWorldEngine : IAppLogic {
             
             // Only process mouse movement if there's actual displacement
             if (displVec.x != 0.0f || displVec.y != 0.0f) {
-                // Fixed direction: positive displVec.x means moving mouse up, so camera should look up (positive rotation)
-                // For horizontal movement, negative displVec.y means moving mouse right, so camera should look right
+                // Apply mouse movements to camera rotation
+                // EXPLICITLY INVERT the horizontal component (yaw) here
                 camera.addRotation(
-                    Math.toRadians((displVec.x * MOUSE_SENSITIVITY).toDouble()).toFloat(),
-                    Math.toRadians((-displVec.y * MOUSE_SENSITIVITY).toDouble()).toFloat()
+                    Math.toRadians((displVec.x * MOUSE_SENSITIVITY).toDouble()).toFloat(),     // Pitch (up/down)
+                    Math.toRadians((-displVec.y * MOUSE_SENSITIVITY).toDouble()).toFloat()     // Yaw (INVERTED)
                 )
+                
+                // Reset cursor position to center after processing movement
+                // This prevents the cursor from hitting the window edges
+                mouseInput.resetCursorPosition()
             }
         }
     }

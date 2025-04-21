@@ -12,14 +12,24 @@ public class MouseInput {
     private boolean inWindow;
     private boolean leftButtonPressed;
     private boolean rightButtonPressed;
+    private final long windowHandle;
+    private boolean resetRequired = false;
+    private int windowWidth, windowHeight;
 
     public MouseInput(long windowHandle) {
+        this.windowHandle = windowHandle;
         previousPos = new Vector2f(-1, -1);
         currentPos = new Vector2f();
         displVec = new Vector2f();
         leftButtonPressed = false;
         rightButtonPressed = false;
         inWindow = false;
+
+        // Get window dimensions
+        int[] width = new int[1], height = new int[1];
+        glfwGetWindowSize(windowHandle, width, height);
+        windowWidth = width[0];
+        windowHeight = height[0];
 
         glfwSetCursorPosCallback(windowHandle, (handle, xpos, ypos) -> {
             currentPos.x = (float) xpos;
@@ -29,6 +39,10 @@ public class MouseInput {
         glfwSetMouseButtonCallback(windowHandle, (handle, button, action, mode) -> {
             leftButtonPressed = button == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS;
             rightButtonPressed = button == GLFW_MOUSE_BUTTON_2 && action == GLFW_PRESS;
+        });
+        glfwSetWindowSizeCallback(windowHandle, (handle, w, h) -> {
+            windowWidth = w;
+            windowHeight = h;
         });
     }
 
@@ -43,14 +57,32 @@ public class MouseInput {
     public void input() {
         displVec.x = 0;
         displVec.y = 0;
+        
         if (previousPos.x >= 0 && previousPos.y >= 0 && inWindow) {
-            // Calculate displacement vector - keep the same formula for consistency
-            // The direction inversion will be handled in the CubicWorldEngine class
-            displVec.x = currentPos.y - previousPos.y;
-            displVec.y = currentPos.x - previousPos.x;
+            // Calculate basic displacement - standard calculation
+            // No inversions here - we'll do that in the engine class
+            displVec.x = currentPos.y - previousPos.y;  // Vertical movement
+            displVec.y = currentPos.x - previousPos.x;  // Horizontal movement (normal)
         }
+        
+        // Store current position for next frame
         previousPos.x = currentPos.x;
         previousPos.y = currentPos.y;
+        
+        // Reset cursor to center if needed - prevents hitting window edges
+        if (resetRequired) {
+            glfwSetCursorPos(windowHandle, windowWidth / 2.0, windowHeight / 2.0);
+            currentPos.x = windowWidth / 2.0f;
+            currentPos.y = windowHeight / 2.0f;
+            previousPos.x = currentPos.x;
+            previousPos.y = currentPos.y;
+            resetRequired = false;
+        }
+    }
+    
+    // Call this to reset cursor position after processing input
+    public void resetCursorPosition() {
+        resetRequired = true;
     }
 
     public boolean isLeftButtonPressed() {
