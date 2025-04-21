@@ -7,7 +7,8 @@ import it.filippocavallari.cubicworld.textures.TextureAtlasLoader
 import it.filippocavallari.cubicworld.textures.TextureStitcher
 import it.filippocavallari.cubicworld.world.World
 import it.filippocavallari.cubicworld.world.chunk.Chunk
-import it.filippocavallari.cubicworld.world.generators.FlatWorldGenerator
+import it.filippocavallari.cubicworld.world.generators.BiodiverseWorldGenerator
+import it.filippocavallari.cubicworld.world.generators.WorldGeneratorRegistry
 import it.filippocavallari.cubicworld.data.block.BlockType
 import org.vulkanb.eng.Engine
 import org.vulkanb.eng.IAppLogic
@@ -45,6 +46,9 @@ class CubicWorldEngine : IAppLogic {
         private const val MOUSE_SENSITIVITY = 0.1f
         private const val MOVEMENT_SPEED = 0.01f
         private const val WORLD_RENDER_DISTANCE = 8 // Chunks rendered in each direction
+        
+        // Mouse cursor state
+        private var mouseCaptured = true
     }
     
     /**
@@ -76,11 +80,16 @@ class CubicWorldEngine : IAppLogic {
             // Initialize Vulkan integration
             vulkanIntegration.initialize(render, scene)
             
-            // Create flat world generator
-            val flatWorldGenerator = FlatWorldGenerator()
+            // Initialize the world generator registry
+            WorldGeneratorRegistry.initialize()
+            
+            // Create biodiverse world generator with random seed
+            val seed = System.currentTimeMillis()
+            println("Using seed for world generation: $seed")
+            val worldGenerator = WorldGeneratorRegistry.create("biodiverse", seed)
             
             // Create and initialize world
-            gameWorld = World(flatWorldGenerator)
+            gameWorld = World(worldGenerator)
             
             // Connect world to Vulkan integration
             vulkanIntegration.connectWorld(gameWorld)
@@ -91,12 +100,22 @@ class CubicWorldEngine : IAppLogic {
             // Setup lighting
             setupLighting(scene)
             
-            // Create and load 4 chunks in a 2x2 grid (origin at 0,0)
-            println("Generating a 2x2 flat world with 4 chunks")
+            // Set up mouse cursor capture for first-person camera mode
+            val windowHandle = window.windowHandle
+            // Disable cursor visibility
+            GLFW.glfwSetInputMode(windowHandle, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED)
+            // Center the cursor
+            GLFW.glfwSetCursorPos(windowHandle, (window.width / 2).toDouble(), (window.height / 2).toDouble())
+            
+            // Create and load chunks in a grid around the player
+            println("Generating a diverse biome world with ${WORLD_RENDER_DISTANCE*2 + 1}x${WORLD_RENDER_DISTANCE*2 + 1} chunks")
+            
+            // Start with just the center chunk and adjacent chunks for performance
             createBasicChunkAt(0, 0)  // Origin
             createBasicChunkAt(0, 1)  // North
             createBasicChunkAt(1, 0)  // East
-            createBasicChunkAt(1, 1)  // Northeast
+            createBasicChunkAt(-1, 0) // West
+            createBasicChunkAt(0, -1) // South
             
             // Initialize is complete
             println("CubicWorld Engine initialized successfully")
@@ -110,7 +129,7 @@ class CubicWorldEngine : IAppLogic {
      * Create a chunk at the specified coordinates using the terrain generator
      */
     private fun createBasicChunkAt(x: Int, z: Int) {
-        println("Creating chunk using terrain generator at $x, $z")
+        println("Creating chunk using biodiverse generator at $x, $z (world position: ${x * Chunk.SIZE}, ${z * Chunk.SIZE})")
         
         // Load the chunk synchronously using the world generator
         val chunk = gameWorld.loadChunkSynchronously(x, z)
@@ -118,7 +137,9 @@ class CubicWorldEngine : IAppLogic {
         // Create the mesh
         vulkanIntegration.createChunkMesh(chunk)
         
-        println("Created terrain chunk at $x, $z")
+        // Print a simple height sample for debugging
+        val sampleHeight = chunk.getBlock(Chunk.SIZE / 2, 100, Chunk.SIZE / 2)
+        println("Created terrain chunk at $x, $z - Sample height at center: $sampleHeight")
     }
     
     /**
@@ -169,14 +190,15 @@ class CubicWorldEngine : IAppLogic {
      * Setup the camera
      */
     private fun setupCamera(camera: Camera) {
-        // Position the camera to view all 4 chunks in the 2x2 grid
+        // Position the camera on top of the grass surface (y = GRASS_LEVEL + 2)
         // Center of the 4 chunks is at (16, 0, 16)
-        camera.position.set(16.0f, 35.0f, 16.0f)
-        // Look straight down to see all chunks evenly
-        camera.setRotation(1.5f, 0.0f)
+        // The surface is at y = 14 + 2 (player height) = 16
+        camera.position.set(16.0f, 16.0f, 16.0f)
+        // Look slightly downward for better perspective
+        camera.setRotation(0.3f, 0.0f)
         
-        println("Camera positioned above the center of the 4 chunks at (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
-        println("Looking down to view the flat world layout")
+        println("Camera positioned on top of the surface at (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
+        println("Looking forward with slight downward angle")
     }
     
     /**
@@ -208,7 +230,29 @@ class CubicWorldEngine : IAppLogic {
         val camera = scene.camera
         val move = diffTimeMillis * MOVEMENT_SPEED
         
-        // Camera movement
+        // Handle escape key to toggle mouse capture
+        if (window.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) {
+            // Toggle mouse capture state
+            mouseCaptured = !mouseCaptured
+            
+            // Update cursor mode based on the toggle state
+            if (mouseCaptured) {
+                // Disable cursor for camera control
+                GLFW.glfwSetInputMode(window.windowHandle, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED)
+            } else {
+                // Show normal cursor
+                GLFW.glfwSetInputMode(window.windowHandle, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL)
+            }
+            
+            // Small delay to prevent multiple toggles
+            try {
+                Thread.sleep(200)
+            } catch (e: InterruptedException) {
+                e.printStackTrace()
+            }
+        }
+        
+        // Camera movement with WASD
         if (window.isKeyPressed(GLFW.GLFW_KEY_W)) {
             camera.moveForward(move)
         } else if (window.isKeyPressed(GLFW.GLFW_KEY_S)) {
@@ -227,14 +271,20 @@ class CubicWorldEngine : IAppLogic {
             camera.moveDown(move)
         }
         
-        // Camera rotation with mouse
-        val mouseInput = window.mouseInput
-        if (mouseInput.isRightButtonPressed) {
+        // Camera rotation with mouse (only when mouse is captured)
+        if (mouseCaptured) {
+            val mouseInput = window.mouseInput
             val displVec = mouseInput.displVec
-            camera.addRotation(
-                Math.toRadians((-displVec.x * MOUSE_SENSITIVITY).toDouble()).toFloat(),
-                Math.toRadians((-displVec.y * MOUSE_SENSITIVITY).toDouble()).toFloat()
-            )
+            
+            // Only process mouse movement if there's actual displacement
+            if (displVec.x != 0.0f || displVec.y != 0.0f) {
+                // Fixed direction: positive displVec.x means moving mouse up, so camera should look up (positive rotation)
+                // For horizontal movement, negative displVec.y means moving mouse right, so camera should look right
+                camera.addRotation(
+                    Math.toRadians((displVec.x * MOUSE_SENSITIVITY).toDouble()).toFloat(),
+                    Math.toRadians((-displVec.y * MOUSE_SENSITIVITY).toDouble()).toFloat()
+                )
+            }
         }
     }
     

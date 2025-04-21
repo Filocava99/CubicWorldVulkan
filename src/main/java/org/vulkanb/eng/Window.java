@@ -45,9 +45,7 @@ public class Window {
         glfwSetFramebufferSizeCallback(windowHandle, (window, w, h) -> resize(w, h));
 
         glfwSetKeyCallback(windowHandle, (window, key, scancode, action, mods) -> {
-            if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE) {
-                glfwSetWindowShouldClose(window, true);
-            }
+            // Remove closing on Escape since we're now using it to toggle mouse capture
             if (keyCallback != null) {
                 keyCallback.invoke(window, key, scancode, action, mods);
             }

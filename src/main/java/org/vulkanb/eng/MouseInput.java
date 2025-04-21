@@ -44,6 +44,8 @@ public class MouseInput {
         displVec.x = 0;
         displVec.y = 0;
         if (previousPos.x >= 0 && previousPos.y >= 0 && inWindow) {
+            // Calculate displacement vector - keep the same formula for consistency
+            // The direction inversion will be handled in the CubicWorldEngine class
             displVec.x = currentPos.y - previousPos.y;
             displVec.y = currentPos.x - previousPos.x;
         }
