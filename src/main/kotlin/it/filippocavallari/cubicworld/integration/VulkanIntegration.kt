@@ -63,6 +63,32 @@ class VulkanIntegration {
         
         // Skip model loading entirely for now
         println("VulkanIntegration initialized with minimal resources")
+        
+        // Print some debug info about available buffers
+        try {
+            // Try to access buffer sizes through reflection
+            val globalBuffersField = render.javaClass.getDeclaredField("globalBuffers")
+            globalBuffersField.isAccessible = true
+            val globalBuffers = globalBuffersField.get(render)
+            
+            val verticesBufferField = globalBuffers.javaClass.getDeclaredField("verticesBuffer")
+            val indicesBufferField = globalBuffers.javaClass.getDeclaredField("indicesBuffer")
+            verticesBufferField.isAccessible = true
+            indicesBufferField.isAccessible = true
+            
+            val verticesBuffer = verticesBufferField.get(globalBuffers)
+            val indicesBuffer = indicesBufferField.get(globalBuffers)
+            
+            val getRequestedSizeMethod = verticesBuffer.javaClass.getDeclaredMethod("getRequestedSize")
+            val verticesSize = getRequestedSizeMethod.invoke(verticesBuffer) as Long
+            val indicesSize = getRequestedSizeMethod.invoke(indicesBuffer) as Long
+            
+            println("Global buffer sizes:")
+            println("- Vertices buffer: ${verticesSize / (1024 * 1024)} MB")
+            println("- Indices buffer: ${indicesSize / (1024 * 1024)} MB")
+        } catch (e: Exception) {
+            println("Could not access buffer information: ${e.message}")
+        }
     }
     
     /**
@@ -239,6 +265,14 @@ class VulkanIntegration {
         // Get a unique ID for this chunk
         val chunkId = getChunkId(chunk)
         
+        // Check if this exact chunk mesh is already loaded and hasn't changed
+        val existingMesh = chunkMeshCache[chunkId]
+        if (existingMesh != null && !chunk.isDirty() && existingMesh.modelId == modelData.modelId) {
+            // The chunk is already loaded with the same mesh, no need to reload
+            println("Chunk $chunkId is already loaded with the same mesh. Skipping.")
+            return chunkId
+        }
+        
         // Store the mesh for future reference
         chunkMeshCache[chunkId] = modelData
         
@@ -253,7 +287,15 @@ class VulkanIntegration {
         
         // Load model to renderer
         println("Loading chunk model with ID: ${modelData.modelId}")
-        vulkanRender.loadModels(listOf(modelData))
+        
+        // Check if mesh has actual vertices before loading
+        if (modelData.meshDataList.isNotEmpty() && modelData.meshDataList[0].positions.isNotEmpty()) {
+            println("Loading chunk with ${modelData.meshDataList[0].positions.size / 3} vertices")
+            vulkanRender.loadModels(listOf(modelData))
+        } else {
+            println("WARNING: Trying to load empty chunk mesh. Skipping.")
+            return ""
+        }
         
         // Create entity for this chunk with correct world position
         val worldX = chunk.getWorldX().toFloat()
@@ -353,6 +395,40 @@ class VulkanIntegration {
     }
     
     /**
+     * Reset the world's chunk rendering - useful when changing worlds
+     * or when the buffer gets too full
+     */
+    fun resetChunkRendering() {
+        println("Resetting chunk rendering system")
+        
+        // Remove all chunk entities from scene
+        val chunksToRemove = ArrayList<String>()
+        
+        // Collect all chunk IDs
+        chunkMeshCache.keys.forEach { chunkId ->
+            chunksToRemove.add(chunkId)
+        }
+        
+        // Remove each chunk entity
+        chunksToRemove.forEach { chunkId ->
+            val modelData = chunkMeshCache[chunkId]
+            val entities = if (modelData != null) vulkanScene.getEntitiesByModelId(modelData.modelId) else null
+            val entity = entities?.find { it.getId() == chunkId }
+            
+            if (entity != null) {
+                vulkanScene.removeEntity(entity)
+                println("Removed entity for chunk $chunkId during reset")
+            }
+        }
+        
+        // Clear the cache
+        chunkMeshCache.clear()
+        
+        // Force recreation of the next world update cycle
+        println("Chunk rendering system reset complete")
+    }
+    
+    /**
      * Clean up resources used by the integration
      */
     fun cleanup() {
@@ -365,8 +441,8 @@ class VulkanIntegration {
             println("Texture resources cleanup (stub)")
         }
         
-        // Clear caches
-        chunkMeshCache.clear()
+        // Reset the chunk rendering system
+        resetChunkRendering()
         
         println("VulkanIntegration cleaned up")
     }

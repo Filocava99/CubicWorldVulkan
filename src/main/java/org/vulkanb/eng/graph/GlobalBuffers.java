@@ -26,6 +26,9 @@ public class GlobalBuffers {
     private final VulkanBuffer indicesBuffer;
     private final VulkanBuffer materialsBuffer;
     private final VulkanBuffer verticesBuffer;
+    // Track current offsets to properly append new chunks
+    private int currentVerticesOffset = 0;
+    private int currentIndicesOffset = 0;
     private VulkanBuffer animIndirectBuffer;
     private VulkanBuffer[] animInstanceDataBuffers;
     private VulkanBuffer animVerticesBuffer;
@@ -74,6 +77,11 @@ public class GlobalBuffers {
         if (animInstanceDataBuffers != null) {
             Arrays.asList(animInstanceDataBuffers).forEach(VulkanBuffer::cleanup);
         }
+        
+        // Reset current offsets
+        currentVerticesOffset = 0;
+        currentIndicesOffset = 0;
+        Logger.debug("Reset vertex and index buffer offsets");
     }
 
     public VulkanBuffer getAnimIndirectBuffer() {
@@ -418,7 +426,8 @@ public class GlobalBuffers {
                 globalMaterialIdx = vulkanMaterialList.get(localMaterialIdx).globalMaterialIdx();
             }
             vulkanModel.addVulkanMesh(new VulkanModel.VulkanMesh(verticesSize, indices.length,
-                    verticesData.position() * INT_LENGTH, indicesData.position() * INT_LENGTH,
+                    currentVerticesOffset + verticesData.position() * INT_LENGTH, 
+                    currentIndicesOffset + indicesData.position() * INT_LENGTH,
                     globalMaterialIdx, animWeightsStgBuffer.getDataBuffer().position() * INT_LENGTH));
 
             int rows = positions.length / 3;
@@ -481,6 +490,10 @@ public class GlobalBuffers {
         StgIntBuffer materialsStgBuffer = new StgIntBuffer(device, materialsBuffer.getRequestedSize());
         StgIntBuffer animJointMatricesStgBuffer = new StgIntBuffer(device, animJointMatricesBuffer.getRequestedSize());
         StgIntBuffer animWeightsStgBuffer = new StgIntBuffer(device, animWeightsBuffer.getRequestedSize());
+        
+        // Record initial positions to track how much data we add
+        int verticesStartPos = verticesStgBuffer.getDataBuffer().position();
+        int indicesStartPos = indicesStgBuffer.getDataBuffer().position();
 
         cmd.beginRecording();
 
@@ -506,13 +519,67 @@ public class GlobalBuffers {
             textureList.add(defaultTexture);
         }
 
+        // Calculate amount of new data added
+        int verticesSize = (verticesStgBuffer.getDataBuffer().position() - verticesStartPos) * INT_LENGTH;
+        int indicesSize = (indicesStgBuffer.getDataBuffer().position() - indicesStartPos) * INT_LENGTH;
+        
+        // Check if we would exceed buffer capacity
+        if (currentVerticesOffset + verticesSize > verticesBuffer.getRequestedSize()) {
+            Logger.error("Vertex buffer overflow: current offset {} + new data size {} exceeds buffer size {}",
+                currentVerticesOffset, verticesSize, verticesBuffer.getRequestedSize());
+            // Reset staging buffer position to discard this data
+            verticesStgBuffer.getDataBuffer().position(verticesStartPos);
+            indicesStgBuffer.getDataBuffer().position(indicesStartPos);
+            
+            // If buffer is completely full, reset to avoid further issues (this means we'll start overwriting)
+            if (currentVerticesOffset >= verticesBuffer.getRequestedSize() * 0.95) {
+                Logger.warn("Vertex buffer is nearly full ({}%), resetting offsets", 
+                    (currentVerticesOffset * 100.0 / verticesBuffer.getRequestedSize()));
+                currentVerticesOffset = 0;
+                currentIndicesOffset = 0;
+            }
+            
+            // Skip this model
+            return vulkanModelList;
+        }
+        
+        if (currentIndicesOffset + indicesSize > indicesBuffer.getRequestedSize()) {
+            Logger.error("Index buffer overflow: current offset {} + new data size {} exceeds buffer size {}",
+                currentIndicesOffset, indicesSize, indicesBuffer.getRequestedSize());
+            // Reset staging buffer position to discard this data
+            verticesStgBuffer.getDataBuffer().position(verticesStartPos);
+            indicesStgBuffer.getDataBuffer().position(indicesStartPos);
+            
+            // If buffer is completely full, reset to avoid further issues
+            if (currentIndicesOffset >= indicesBuffer.getRequestedSize() * 0.95) {
+                Logger.warn("Index buffer is nearly full ({}%), resetting offsets", 
+                    (currentIndicesOffset * 100.0 / indicesBuffer.getRequestedSize()));
+                currentVerticesOffset = 0;
+                currentIndicesOffset = 0;
+            }
+            
+            // Skip this model
+            return vulkanModelList;
+        }
+        
+        // Log info about the data being loaded
+        Logger.debug("Loading model data: Vertices size = {} bytes, Indices size = {} bytes", verticesSize, indicesSize);
+        Logger.debug("Current offsets: Vertices = {}, Indices = {}", currentVerticesOffset, currentIndicesOffset);
+
+        // Record transfer commands with proper offsets for new data
         materialsStgBuffer.recordTransferCommand(cmd, materialsBuffer);
-        verticesStgBuffer.recordTransferCommand(cmd, verticesBuffer);
-        indicesStgBuffer.recordTransferCommand(cmd, indicesBuffer);
+        verticesStgBuffer.recordTransferCommand(cmd, verticesBuffer, currentVerticesOffset, verticesSize);
+        indicesStgBuffer.recordTransferCommand(cmd, indicesBuffer, currentIndicesOffset, indicesSize);
         animJointMatricesStgBuffer.recordTransferCommand(cmd, animJointMatricesBuffer);
         animWeightsStgBuffer.recordTransferCommand(cmd, animWeightsBuffer);
         textureList.forEach(t -> t.recordTextureTransition(cmd));
         cmd.endRecording();
+        
+        // Update offsets in a thread-safe way after the command is executed
+        synchronized(this) {
+            currentVerticesOffset += verticesSize;
+            currentIndicesOffset += indicesSize;
+        }
 
         cmd.submitAndWait(device, queue);
         cmd.cleanup();
@@ -633,12 +700,17 @@ public class GlobalBuffers {
             stgVulkanBuffer.cleanup();
         }
 
-        public void recordTransferCommand(CommandBuffer cmd, VulkanBuffer dstBuffer) {
+        public void recordTransferCommand(CommandBuffer cmd, VulkanBuffer dstBuffer, int dstOffset, int size) {
             try (MemoryStack stack = MemoryStack.stackPush()) {
                 VkBufferCopy.Buffer copyRegion = VkBufferCopy.calloc(1, stack)
-                        .srcOffset(0).dstOffset(0).size(stgVulkanBuffer.getRequestedSize());
+                        .srcOffset(0).dstOffset(dstOffset).size(size);
                 vkCmdCopyBuffer(cmd.getVkCommandBuffer(), stgVulkanBuffer.getBuffer(), dstBuffer.getBuffer(), copyRegion);
             }
+        }
+        
+        public void recordTransferCommand(CommandBuffer cmd, VulkanBuffer dstBuffer) {
+            // For backward compatibility - copies the entire buffer to offset 0
+            recordTransferCommand(cmd, dstBuffer, 0, (int)stgVulkanBuffer.getRequestedSize());
         }
     }
 
