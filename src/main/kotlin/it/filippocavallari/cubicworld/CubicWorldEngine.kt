@@ -44,8 +44,8 @@ class CubicWorldEngine : IAppLogic {
     // Constants
     companion object {
         private const val MOUSE_SENSITIVITY = 0.1f
-        private const val MOVEMENT_SPEED = 0.01f
-        private const val WORLD_RENDER_DISTANCE = 8 // Chunks rendered in each direction
+        private const val MOVEMENT_SPEED = 0.05f  // Increased movement speed for navigating the larger world
+        private const val WORLD_RENDER_DISTANCE = 16 // Increased render distance for the larger grid
         
         // Mouse cursor state
         private var mouseCaptured = true
@@ -107,15 +107,35 @@ class CubicWorldEngine : IAppLogic {
             // Center the cursor
             GLFW.glfwSetCursorPos(windowHandle, (window.width / 2).toDouble(), (window.height / 2).toDouble())
             
-            // Create and load chunks in a grid around the player
-            println("Generating a diverse biome world with ${WORLD_RENDER_DISTANCE*2 + 1}x${WORLD_RENDER_DISTANCE*2 + 1} chunks")
+            // Create and load chunks in a 32x32 grid centered at the origin
+            println("Generating a 32x32 grid of chunks centered at the origin")
+            println("WARNING: Generating 1024 chunks at once may require significant resources and time")
             
-            // Start with just the center chunk and adjacent chunks for performance
-            createBasicChunkAt(0, 0)  // Origin
-            createBasicChunkAt(0, 1)  // North
-            createBasicChunkAt(1, 0)  // East
-            createBasicChunkAt(-1, 0) // West
-            createBasicChunkAt(0, -1) // South
+            // Define grid parameters
+            val gridSize = 32
+            val halfGrid = gridSize / 2
+            var chunksGenerated = 0
+            val totalChunks = gridSize * gridSize
+            
+            // Define the range for chunk coordinates (-16 to 15 for both X and Z)
+            val startCoord = -halfGrid
+            val endCoord = halfGrid - 1
+            
+            // Generate chunks in a grid pattern
+            for (x in startCoord..endCoord) {
+                for (z in startCoord..endCoord) {
+                    // Create the chunk
+                    createBasicChunkAt(x, z)
+                    
+                    // Update progress counter (report every 32 chunks or at completion)
+                    chunksGenerated++
+                    if (chunksGenerated % 32 == 0 || chunksGenerated == totalChunks) {
+                        println("Generated $chunksGenerated/$totalChunks chunks (${(chunksGenerated * 100 / totalChunks)}%)")
+                    }
+                }
+            }
+            
+            println("Finished generating all $chunksGenerated chunks in a 32x32 grid")
             
             // Initialize is complete
             println("CubicWorld Engine initialized successfully")
@@ -190,15 +210,15 @@ class CubicWorldEngine : IAppLogic {
      * Setup the camera
      */
     private fun setupCamera(camera: Camera) {
-        // Position the camera on top of the grass surface (y = GRASS_LEVEL + 2)
-        // Center of the 4 chunks is at (16, 0, 16)
-        // The surface is at y = 14 + 2 (player height) = 16
-        camera.position.set(16.0f, 16.0f, 16.0f)
-        // Look slightly downward for better perspective
-        camera.setRotation(0.3f, 0.0f)
+        // Position the camera at the center of the 32x32 grid, elevated for a better view
+        // Center of the grid is at (0, 0) in chunk coordinates, which translates to (0, 0) in block coordinates
+        // Set height to see a good portion of the 32x32 chunk grid
+        camera.position.set(0.0f, 180.0f, 0.0f)
+        // Look down at a steep angle for a bird's eye view
+        camera.setRotation(1.5f, 0.0f)
         
-        println("Camera positioned on top of the surface at (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
-        println("Looking forward with slight downward angle")
+        println("Camera positioned above the center of the 32x32 chunk grid at (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
+        println("Set to bird's eye view to better observe the entire grid")
     }
     
     /**
