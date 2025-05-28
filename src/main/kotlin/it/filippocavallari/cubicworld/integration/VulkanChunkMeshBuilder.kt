@@ -42,7 +42,7 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         const val MAX_INDICES = MAX_VERTICES * 3  // Conservative estimate
         const val VERTICES_PER_FACE = 4
         const val INDICES_PER_FACE = 6
-        const val CHUNK_MAX_HEIGHT = 128  // Process terrain up to reasonable height
+        const val CHUNK_MAX_HEIGHT = 200  // Increased to ensure we don't cut terrain
     }
     
     /**
@@ -103,22 +103,32 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
             
             // Find the actual maximum height in this chunk to avoid processing empty air
             var actualMaxHeight = 0
+            var totalBlocksFound = 0
+            
+            // First pass: scan for the highest block to optimize processing
             for (x in 0 until Chunk.SIZE) {
                 for (z in 0 until Chunk.SIZE) {
-                    for (y in 0 until minOf(Chunk.HEIGHT, CHUNK_MAX_HEIGHT)) {
+                    for (y in 0 until Chunk.HEIGHT) {
                         if (chunk.getBlock(x, y, z) != 0) {
                             actualMaxHeight = maxOf(actualMaxHeight, y)
+                            totalBlocksFound++
                         }
                     }
                 }
             }
             
-            // Add some padding for decorations
-            actualMaxHeight = minOf(actualMaxHeight + 16, CHUNK_MAX_HEIGHT)
+            // Add padding for decorations and safety
+            actualMaxHeight = minOf(actualMaxHeight + 32, Chunk.HEIGHT - 1)
             
-            println("Chunk ${chunk.position.x},${chunk.position.y}: Processing height 0 to $actualMaxHeight (found blocks up to ${actualMaxHeight - 16})")
+            println("Chunk ${chunk.position.x},${chunk.position.y}: Found $totalBlocksFound blocks, max height $actualMaxHeight")
             
-            // Iterate through all blocks in the chunk up to actual terrain height
+            // If no blocks found, create a minimal ground plane for debugging
+            if (totalBlocksFound == 0) {
+                println("WARNING: Chunk has no blocks! This shouldn't happen with proper terrain generation.")
+                return ModelData("empty_chunk_${chunk.position.x}_${chunk.position.y}", ArrayList(), ArrayList())
+            }
+            
+            // Process all blocks up to actual terrain height (no artificial limits)
             for (x in 0 until Chunk.SIZE) {
                 for (y in 0..actualMaxHeight) {
                     for (z in 0 until Chunk.SIZE) {
@@ -127,15 +137,11 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
                         // Skip air blocks
                         if (blockId == 0) continue
                         
-                        // Check if we're approaching vertex limit
-                        // A full cube can have up to 24 vertices (6 faces * 4 vertices)
+                        // Warning for vertex limits but continue processing to avoid gaps
                         if (vertexCount + 24 > MAX_VERTICES) {
-                            println("WARNING: Reached vertex limit at block ($x, $y, $z) in chunk ${chunk.position.x},${chunk.position.y}")
-                            println("  Current vertices: $vertexCount")
-                            println("  Faces generated: $facesAdded")
-                            println("  This chunk is too dense - consider implementing LOD system")
-                            // Instead of breaking, we'll continue but implement chunk splitting in the future
-                            // For now, we'll finish this chunk to avoid gaps
+                            println("WARNING: Chunk ${chunk.position.x},${chunk.position.y} approaching vertex limit")
+                            println("  Current vertices: $vertexCount at block ($x, $y, $z)")
+                            println("  Continuing to avoid gaps - implement LOD if this becomes frequent")
                         }
                         
                         // Convert to world coordinates for proper chunk offset
@@ -398,7 +404,7 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
     private fun countNonAirBlocks(chunk: Chunk): Int {
         var count = 0
         for (x in 0 until Chunk.SIZE) {
-            for (y in 0 until CHUNK_MAX_HEIGHT) {
+            for (y in 0 until Chunk.HEIGHT) {
                 for (z in 0 until Chunk.SIZE) {
                     if (chunk.getBlock(x, y, z) != 0) count++
                 }
@@ -413,7 +419,7 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
     private fun estimateVisibleFaces(chunk: Chunk): Int {
         var visibleFaces = 0
         for (x in 0 until Chunk.SIZE) {
-            for (y in 0 until CHUNK_MAX_HEIGHT) {
+            for (y in 0 until Chunk.HEIGHT) {
                 for (z in 0 until Chunk.SIZE) {
                     val blockId = chunk.getBlock(x, y, z)
                     if (blockId != 0) {

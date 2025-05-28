@@ -332,9 +332,23 @@ class CubicWorldEngine : IAppLogic {
         // Look down at a moderate angle for a good overview
         camera.setRotation(1.2f, 0.0f)
         
-        println("Camera positioned above the center of the 3x3 chunk grid at (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
-        println("Set to overview angle to observe seamless chunk transitions")
-        println("Expected to see chunks from (-16,-16) to (31,31) in world coordinates")
+        println("\n=== CAMERA SETUP & EXPECTED LAYOUT ===")
+        println("Camera positioned at: (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
+        println("Looking down at 3x3 seamless chunk grid")
+        println("")
+        println("Expected chunk layout (world coordinates):")
+        println("  Chunk (-1,-1): (-16,-16) to (-1,-1)")
+        println("  Chunk (-1, 0): (-16,  0) to (-1,15)")
+        println("  Chunk (-1, 1): (-16, 16) to (-1,31)")
+        println("  Chunk ( 0,-1): (  0,-16) to (15,-1)")
+        println("  Chunk ( 0, 0): (  0,  0) to (15,15)   <- CENTER")
+        println("  Chunk ( 0, 1): (  0, 16) to (15,31)")
+        println("  Chunk ( 1,-1): ( 16,-16) to (31,-1)")
+        println("  Chunk ( 1, 0): ( 16,  0) to (31,15)")
+        println("  Chunk ( 1, 1): ( 16, 16) to (31,31)")
+        println("")
+        println("Total world area: (-16,-16) to (31,31) - should be SEAMLESS!")
+        println("========================================\n")
     }
     
     /**

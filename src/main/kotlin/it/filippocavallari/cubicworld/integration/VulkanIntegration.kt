@@ -386,15 +386,16 @@ class VulkanIntegration {
             loadedChunks[chunkId] = modelData.modelId
         }
         
-        // Create entity for this chunk with correct world position
-        val worldX = chunk.getWorldX().toFloat()
-        val worldZ = chunk.getWorldZ().toFloat()
-        val entity = Entity(chunkId, modelData.modelId, Vector3f(worldX, 0.0f, worldZ))
+        // Create entity for this chunk at origin since mesh vertices are already in world coordinates
+        // The mesh vertices are positioned at world coordinates, so entity should be at origin
+        val entity = Entity(chunkId, modelData.modelId, Vector3f(0.0f, 0.0f, 0.0f))
         
-        println("Placing chunk entity at world position: ($worldX, 0.0, $worldZ)")
-        println("  Chunk coordinates: (${chunk.position.x}, ${chunk.position.y})")
-        println("  Expected world pos: (${chunk.position.x * Chunk.SIZE}, ${chunk.position.y * Chunk.SIZE})")
-        
+        println("\n=== CHUNK POSITIONING DEBUG ===")
+        println("Chunk coordinate: (${chunk.position.x}, ${chunk.position.y})")
+        println("Expected world bounds: (${chunk.getWorldX()}, ${chunk.getWorldZ()}) to (${chunk.getWorldX() + 15}, ${chunk.getWorldZ() + 15})")
+        println("Mesh vertices will be positioned at these world coordinates")
+        println("Entity position: (0, 0, 0) - no additional offset needed")
+        println("================================\n")
         // Add entity to scene
         vulkanScene.addEntity(entity)
         println("Added entity for chunk $chunkId with model ID ${modelData.modelId}")
