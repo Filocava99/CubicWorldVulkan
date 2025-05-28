@@ -6,6 +6,7 @@ import it.filippocavallari.cubicworld.models.ModelManager
 import it.filippocavallari.cubicworld.textures.TextureAtlasLoader
 import it.filippocavallari.cubicworld.textures.TextureStitcher
 import it.filippocavallari.cubicworld.world.World
+import it.filippocavallari.cubicworld.world.ChunkManager
 import it.filippocavallari.cubicworld.world.chunk.Chunk
 import it.filippocavallari.cubicworld.world.generators.BiodiverseWorldGenerator
 import it.filippocavallari.cubicworld.world.generators.WorldGeneratorRegistry
@@ -35,6 +36,9 @@ class CubicWorldEngine : IAppLogic {
     // Game world
     private lateinit var gameWorld: World
     
+    // Chunk management system
+    private lateinit var chunkManager: ChunkManager
+    
     // Vulkan integration component
     private lateinit var vulkanIntegration: VulkanIntegration
     
@@ -44,8 +48,8 @@ class CubicWorldEngine : IAppLogic {
     // Constants
     companion object {
         private const val MOUSE_SENSITIVITY = 0.1f
-        private const val MOVEMENT_SPEED = 0.05f  // Increased movement speed for navigating the larger world
-        private const val WORLD_RENDER_DISTANCE = 16 // Increased render distance for the larger grid
+        private const val MOVEMENT_SPEED = 0.08f  // Increased movement speed for navigating the larger world
+        private const val WORLD_RENDER_DISTANCE = 2 // 4x4 grid (2 chunks in each direction from center)
         
         // Mouse cursor state
         private var mouseCaptured = true
@@ -94,6 +98,9 @@ class CubicWorldEngine : IAppLogic {
             // Connect world to Vulkan integration
             vulkanIntegration.connectWorld(gameWorld)
             
+            // Initialize the chunk manager with the new 4x4 dynamic loading system
+            chunkManager = ChunkManager(gameWorld, vulkanIntegration)
+            
             // Setup camera
             setupCamera(scene.camera)
             
@@ -107,86 +114,23 @@ class CubicWorldEngine : IAppLogic {
             // Center the cursor
             GLFW.glfwSetCursorPos(windowHandle, (window.width / 2).toDouble(), (window.height / 2).toDouble())
             
-            // Create and load chunks in a smaller initial grid to avoid overwhelming the system
-            println("Generating a 3x3 grid of chunks centered at the origin")
-            println("This will generate 9 chunks for initial testing to verify seamless transitions")
+            // Initialize the enhanced 4x4 chunk loading system
+            println("Initializing enhanced 4x4 dynamic chunk loading system")
+            println("This system will load chunks in a circular pattern and dynamically adjust as you move")
             
-            // Define grid parameters - start small to test seamless chunk boundaries
-            val gridSize = 3
-            val halfGrid = gridSize / 2
-            var chunksGenerated = 0
-            val totalChunks = gridSize * gridSize
+            // Initialize the chunk manager at spawn point (0, 0)
+            chunkManager.initialize(0, 0)
             
-            // Define the range for chunk coordinates (-1 to 1 for both X and Z)
-            val startCoord = -halfGrid
-            val endCoord = halfGrid
-            
-            // Generate chunks in a grid pattern with buffer management
-            var successfulChunks = 0
-            var failedChunks = 0
-            val chunkGenerationOrder = mutableListOf<Pair<Int, Int>>()
-            
-            // Generate chunks in a spiral pattern from center outward for better visibility
-            for (radius in 0..halfGrid) {
-                for (x in -radius..radius) {
-                    for (z in -radius..radius) {
-                        // Only add chunks on the edge of this radius
-                        if (kotlin.math.abs(x) == radius || kotlin.math.abs(z) == radius) {
-                            if (x in startCoord..endCoord && z in startCoord..endCoord) {
-                                chunkGenerationOrder.add(Pair(x, z))
-                            }
-                        }
-                    }
-                }
-            }
-            
-            println("Generating ${chunkGenerationOrder.size} chunks in spiral order from center")
-            
-            // Generate chunks with improved error handling and validation
-            for ((x, z) in chunkGenerationOrder) {
-                try {
-                    println("\n=== Creating chunk at ($x, $z) ===")
-                    println("World position will be: (${x * 16}, ${z * 16}) to (${x * 16 + 15}, ${z * 16 + 15})")
-                    
-                    // Create the chunk
-                    createBasicChunkAt(x, z)
-                    successfulChunks++
-                    
-                    // Larger delay to allow proper processing and avoid overwhelming Vulkan
-                    Thread.sleep(200) // 200ms delay between chunks
-                    
-                } catch (e: Exception) {
-                    println("Failed to create chunk at ($x, $z): ${e.message}")
-                    e.printStackTrace()
-                    failedChunks++
-                    
-                    // If we're getting descriptor pool errors, we need to stop
-                    if (e.message?.contains("descriptor set") == true || 
-                        e.message?.contains("-1000069000") == true ||
-                        e.message?.contains("VK_ERROR") == true) {
-                        println("ERROR: Vulkan error encountered after $successfulChunks chunks")
-                        println("Stopping chunk generation to prevent further errors")
-                        break
-                    }
-                }
-                
-                // Update progress counter (report every chunk for small grid)
-                val chunksGenerated = successfulChunks + failedChunks
-                println("Progress: $chunksGenerated/${chunkGenerationOrder.size} chunks attempted")
-                println("  Successful: $successfulChunks, Failed: $failedChunks")
-            }
-            
-            println("\nChunk generation complete:")
-            println("  Total attempted: ${successfulChunks + failedChunks}")
-            println("  Successful: $successfulChunks")
-            println("  Failed: $failedChunks")
-            
-            if (failedChunks > 0) {
-                println("\nWARNING: Some chunks failed to load. This is likely due to:")
-                println("  - Descriptor pool exhaustion (VK_ERROR_FRAGMENTED_POOL)")
-                println("  - Vertex/Index buffer overflow")
-                println("  Consider reducing chunk complexity or implementing chunk LOD")
-            }
+            println("\n=== ENHANCED CHUNK LOADING SYSTEM ===\n")
+            println("Features:")
+            println("  ✓ 4x4 chunk grid (${WORLD_RENDER_DISTANCE * 2 + 1}x${WORLD_RENDER_DISTANCE * 2 + 1} total area)")
+            println("  ✓ Circular loading pattern (center-out priority)")
+            println("  ✓ Dynamic loading when approaching chunk borders")
+            println("  ✓ Automatic unloading of distant chunks")
+            println("  ✓ Memory-efficient chunk management")
+            println("")
+            println("Initial chunks loaded: ${chunkManager.getLoadedChunkInfo()}")
+            println("=====================================\n")
             
             // Initialize is complete
             println("CubicWorld Engine initialized successfully")
@@ -325,29 +269,29 @@ class CubicWorldEngine : IAppLogic {
      * Setup the camera
      */
     private fun setupCamera(camera: Camera) {
-        // Position the camera at the center of the 3x3 grid, elevated for a better view
+        // Position the camera at the center of the 4x4 grid, elevated for a better view
         // Center of the grid is at (0, 0) in chunk coordinates, which translates to (0, 0) in block coordinates
-        // Set height to see the entire 3x3 chunk grid clearly
-        camera.position.set(0.0f, 45.0f, 0.0f)
+        // Set height to see the entire 4x4 chunk grid clearly
+        camera.position.set(8.0f, 50.0f, 8.0f) // Slightly offset to see the grid better
         // Look down at a moderate angle for a good overview
-        camera.setRotation(1.2f, 0.0f)
+        camera.setRotation(1.0f, 0.0f)
         
         println("\n=== CAMERA SETUP & EXPECTED LAYOUT ===")
         println("Camera positioned at: (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
-        println("Looking down at 3x3 seamless chunk grid")
+        println("Looking down at 4x4 dynamic chunk grid")
         println("")
-        println("Expected chunk layout (world coordinates):")
-        println("  Chunk (-1,-1): (-16,-16) to (-1,-1)")
-        println("  Chunk (-1, 0): (-16,  0) to (-1,15)")
-        println("  Chunk (-1, 1): (-16, 16) to (-1,31)")
-        println("  Chunk ( 0,-1): (  0,-16) to (15,-1)")
-        println("  Chunk ( 0, 0): (  0,  0) to (15,15)   <- CENTER")
-        println("  Chunk ( 0, 1): (  0, 16) to (15,31)")
-        println("  Chunk ( 1,-1): ( 16,-16) to (31,-1)")
-        println("  Chunk ( 1, 0): ( 16,  0) to (31,15)")
-        println("  Chunk ( 1, 1): ( 16, 16) to (31,31)")
+        println("Dynamic chunk layout (4x4 grid around player):")
+        println("  Chunks will load/unload automatically as you move")
+        println("  Total coverage: 4x4 chunks = 64x64 blocks")
+        println("  Load distance: ${WORLD_RENDER_DISTANCE} chunks in each direction")
+        println("  Circular loading pattern prioritizes closest chunks")
         println("")
-        println("Total world area: (-16,-16) to (31,31) - should be SEAMLESS!")
+        println("Movement controls:")
+        println("  WASD: Move horizontally")
+        println("  Space: Move up")
+        println("  Shift: Move down")
+        println("  Mouse: Look around")
+        println("  ESC: Toggle mouse capture")
         println("========================================\n")
     }
     
@@ -446,8 +390,19 @@ class CubicWorldEngine : IAppLogic {
      * Update game logic
      */
     override fun update(window: Window, scene: Scene, diffTimeMillis: Long) {
-        // Simplified update - just update the world
+        // Update the world
         gameWorld.updateChunks(diffTimeMillis / 1000.0f)
+        
+        // Update chunk manager with current player position for dynamic loading
+        val camera = scene.camera
+        chunkManager.updatePlayerPosition(camera.position.x, camera.position.z)
+        
+        // Optional: Print debug info periodically (every 5 seconds)
+        if (System.currentTimeMillis() % 5000 < 50) { // Roughly every 5 seconds
+            val playerChunkX = Chunk.worldToChunk(camera.position.x.toInt())
+            val playerChunkZ = Chunk.worldToChunk(camera.position.z.toInt())
+            println("Player at world (${camera.position.x.toInt()}, ${camera.position.z.toInt()}) = chunk ($playerChunkX, $playerChunkZ). ${chunkManager.getLoadedChunkInfo()}")
+        }
     }
     
     /**
@@ -455,6 +410,11 @@ class CubicWorldEngine : IAppLogic {
      */
     override fun cleanup() {
         println("Cleaning up CubicWorld Engine")
+        
+        // Clean up chunk manager
+        if (::chunkManager.isInitialized) {
+            chunkManager.cleanup()
+        }
         
         // Clean up Vulkan integration
         if (::vulkanIntegration.isInitialized) {

@@ -130,6 +130,15 @@ class World(
                 listener.onChunkUnloaded(it)
             }
         }
+        
+        println("Unloaded chunk at ($x, $z)")
+    }
+    
+    /**
+     * Check if a chunk is loaded at the specified position
+     */
+    fun isChunkLoaded(x: Int, z: Int): Boolean {
+        return chunksMap.containsKey(Vector2i(x, z))
     }
     
     /**

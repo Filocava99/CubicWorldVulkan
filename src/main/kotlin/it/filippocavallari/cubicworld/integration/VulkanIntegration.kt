@@ -434,6 +434,16 @@ class VulkanIntegration {
      */
     fun removeChunkMesh(chunk: Chunk) {
         val chunkId = getChunkId(chunk)
+        removeChunkMesh(chunkId)
+    }
+    
+    /**
+     * Remove a chunk mesh from the scene by entity ID
+     * 
+     * @param entityId The entity ID of the chunk to remove
+     */
+    fun removeChunkMesh(entityId: String) {
+        val chunkId = entityId
         
         // Get the model ID for this chunk
         val modelId = loadedChunks[chunkId]
