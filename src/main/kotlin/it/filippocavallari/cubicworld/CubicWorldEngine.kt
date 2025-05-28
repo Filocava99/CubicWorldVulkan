@@ -17,12 +17,12 @@ import org.vulkanb.eng.graph.Render
 import org.vulkanb.eng.scene.Scene
 import org.joml.Vector3f
 import org.joml.Vector2f
-import org.lwjgl.glfw.GLFW
 import org.vulkanb.eng.scene.Entity
 import org.vulkanb.eng.scene.Light
 import org.vulkanb.eng.scene.Camera
 import org.vulkanb.eng.scene.ModelData
 import java.util.concurrent.ConcurrentHashMap
+import org.lwjgl.glfw.GLFW
 
 /**
  * Main engine class for CubicWorld.
@@ -107,35 +107,86 @@ class CubicWorldEngine : IAppLogic {
             // Center the cursor
             GLFW.glfwSetCursorPos(windowHandle, (window.width / 2).toDouble(), (window.height / 2).toDouble())
             
-            // Create and load chunks in a 32x32 grid centered at the origin
-            println("Generating a 32x32 grid of chunks centered at the origin")
-            println("WARNING: Generating 1024 chunks at once may require significant resources and time")
+            // Create and load chunks in a smaller initial grid to avoid overwhelming the system
+            println("Generating a 3x3 grid of chunks centered at the origin")
+            println("This will generate 9 chunks for initial testing to verify seamless transitions")
             
-            // Define grid parameters
-            val gridSize = 32
+            // Define grid parameters - start small to test seamless chunk boundaries
+            val gridSize = 3
             val halfGrid = gridSize / 2
             var chunksGenerated = 0
             val totalChunks = gridSize * gridSize
             
-            // Define the range for chunk coordinates (-16 to 15 for both X and Z)
+            // Define the range for chunk coordinates (-1 to 1 for both X and Z)
             val startCoord = -halfGrid
-            val endCoord = halfGrid - 1
+            val endCoord = halfGrid
             
-            // Generate chunks in a grid pattern
-            for (x in startCoord..endCoord) {
-                for (z in startCoord..endCoord) {
-                    // Create the chunk
-                    createBasicChunkAt(x, z)
-                    
-                    // Update progress counter (report every 32 chunks or at completion)
-                    chunksGenerated++
-                    if (chunksGenerated % 32 == 0 || chunksGenerated == totalChunks) {
-                        println("Generated $chunksGenerated/$totalChunks chunks (${(chunksGenerated * 100 / totalChunks)}%)")
+            // Generate chunks in a grid pattern with buffer management
+            var successfulChunks = 0
+            var failedChunks = 0
+            val chunkGenerationOrder = mutableListOf<Pair<Int, Int>>()
+            
+            // Generate chunks in a spiral pattern from center outward for better visibility
+            for (radius in 0..halfGrid) {
+                for (x in -radius..radius) {
+                    for (z in -radius..radius) {
+                        // Only add chunks on the edge of this radius
+                        if (kotlin.math.abs(x) == radius || kotlin.math.abs(z) == radius) {
+                            if (x in startCoord..endCoord && z in startCoord..endCoord) {
+                                chunkGenerationOrder.add(Pair(x, z))
+                            }
+                        }
                     }
                 }
             }
             
-            println("Finished generating all $chunksGenerated chunks in a 32x32 grid")
+            println("Generating ${chunkGenerationOrder.size} chunks in spiral order from center")
+            
+            // Generate chunks with improved error handling and validation
+            for ((x, z) in chunkGenerationOrder) {
+                try {
+                    println("\n=== Creating chunk at ($x, $z) ===")
+                    println("World position will be: (${x * 16}, ${z * 16}) to (${x * 16 + 15}, ${z * 16 + 15})")
+                    
+                    // Create the chunk
+                    createBasicChunkAt(x, z)
+                    successfulChunks++
+                    
+                    // Larger delay to allow proper processing and avoid overwhelming Vulkan
+                    Thread.sleep(200) // 200ms delay between chunks
+                    
+                } catch (e: Exception) {
+                    println("Failed to create chunk at ($x, $z): ${e.message}")
+                    e.printStackTrace()
+                    failedChunks++
+                    
+                    // If we're getting descriptor pool errors, we need to stop
+                    if (e.message?.contains("descriptor set") == true || 
+                        e.message?.contains("-1000069000") == true ||
+                        e.message?.contains("VK_ERROR") == true) {
+                        println("ERROR: Vulkan error encountered after $successfulChunks chunks")
+                        println("Stopping chunk generation to prevent further errors")
+                        break
+                    }
+                }
+                
+                // Update progress counter (report every chunk for small grid)
+                val chunksGenerated = successfulChunks + failedChunks
+                println("Progress: $chunksGenerated/${chunkGenerationOrder.size} chunks attempted")
+                println("  Successful: $successfulChunks, Failed: $failedChunks")
+            }
+            
+            println("\nChunk generation complete:")
+            println("  Total attempted: ${successfulChunks + failedChunks}")
+            println("  Successful: $successfulChunks")
+            println("  Failed: $failedChunks")
+            
+            if (failedChunks > 0) {
+                println("\nWARNING: Some chunks failed to load. This is likely due to:")
+                println("  - Descriptor pool exhaustion (VK_ERROR_FRAGMENTED_POOL)")
+                println("  - Vertex/Index buffer overflow")
+                println("  Consider reducing chunk complexity or implementing chunk LOD")
+            }
             
             // Initialize is complete
             println("CubicWorld Engine initialized successfully")
@@ -149,17 +200,81 @@ class CubicWorldEngine : IAppLogic {
      * Create a chunk at the specified coordinates using the terrain generator
      */
     private fun createBasicChunkAt(x: Int, z: Int) {
-        println("Creating chunk using biodiverse generator at $x, $z (world position: ${x * Chunk.SIZE}, ${z * Chunk.SIZE})")
+        try {
+            println("Creating chunk using biodiverse generator at ($x, $z)")
+            println("  Chunk coordinate: ($x, $z)")
+            println("  World position: (${x * Chunk.SIZE}, ${z * Chunk.SIZE}) to (${x * Chunk.SIZE + 15}, ${z * Chunk.SIZE + 15})")
+            
+            // Load the chunk synchronously using the world generator
+            val chunk = gameWorld.loadChunkSynchronously(x, z)
+            
+            // Validate chunk coordinates
+            validateChunkCoordinates(chunk, x, z)
+            
+            // Verify the chunk was created properly
+            var blockCount = 0
+            var maxHeight = 0
+            var minHeight = Chunk.HEIGHT
+            val heightMap = mutableMapOf<Int, Int>()
+            
+            for (bx in 0 until Chunk.SIZE) {
+                for (bz in 0 until Chunk.SIZE) {
+                    for (by in 0 until Chunk.HEIGHT) {
+                        if (chunk.getBlock(bx, by, bz) != 0) {
+                            blockCount++
+                            if (by > maxHeight) maxHeight = by
+                            if (by < minHeight) minHeight = by
+                            heightMap[by] = (heightMap[by] ?: 0) + 1
+                        }
+                    }
+                }
+            }
+            
+            if (blockCount == 0) {
+                println("ERROR: Chunk at ($x, $z) is completely empty!")
+            } else {
+                println("Chunk at ($x, $z) terrain analysis:")
+                println("  Total blocks: $blockCount")
+                println("  Height range: $minHeight to $maxHeight")
+                println("  Surface area coverage: ${String.format("%.1f", (blockCount.toFloat() / (Chunk.SIZE * Chunk.SIZE)) * 100)}%")
+            }
+            
+            // Create the mesh
+            val entityId = vulkanIntegration.createChunkMesh(chunk)
+            if (entityId.isEmpty()) {
+                println("WARNING: Failed to create mesh for chunk at ($x, $z) - mesh might be empty or failed")
+            } else {
+                println("SUCCESS: Created mesh entity '$entityId' for chunk at ($x, $z)")
+            }
+            
+        } catch (e: Exception) {
+            println("ERROR: Failed to create chunk at ($x, $z): ${e.message}")
+            e.printStackTrace()
+        }
+    }
+    
+    /**
+     * Validate that chunk coordinates are correctly set
+     */
+    private fun validateChunkCoordinates(chunk: Chunk, expectedX: Int, expectedZ: Int) {
+        if (chunk.position.x != expectedX || chunk.position.y != expectedZ) {
+            println("ERROR: Chunk coordinate mismatch!")
+            println("  Expected: ($expectedX, $expectedZ)")
+            println("  Actual: (${chunk.position.x}, ${chunk.position.y})")
+        }
         
-        // Load the chunk synchronously using the world generator
-        val chunk = gameWorld.loadChunkSynchronously(x, z)
+        val expectedWorldX = expectedX * Chunk.SIZE
+        val expectedWorldZ = expectedZ * Chunk.SIZE
+        val actualWorldX = chunk.getWorldX()
+        val actualWorldZ = chunk.getWorldZ()
         
-        // Create the mesh
-        vulkanIntegration.createChunkMesh(chunk)
-        
-        // Print a simple height sample for debugging
-        val sampleHeight = chunk.getBlock(Chunk.SIZE / 2, 100, Chunk.SIZE / 2)
-        println("Created terrain chunk at $x, $z - Sample height at center: $sampleHeight")
+        if (actualWorldX != expectedWorldX || actualWorldZ != expectedWorldZ) {
+            println("ERROR: World coordinate calculation error!")
+            println("  Expected world position: ($expectedWorldX, $expectedWorldZ)")
+            println("  Actual world position: ($actualWorldX, $actualWorldZ)")
+        } else {
+            println("  Coordinates validated: chunk ($expectedX, $expectedZ) -> world ($actualWorldX, $actualWorldZ)")
+        }
     }
     
     /**
@@ -210,15 +325,16 @@ class CubicWorldEngine : IAppLogic {
      * Setup the camera
      */
     private fun setupCamera(camera: Camera) {
-        // Position the camera at the center of the 32x32 grid, elevated for a better view
+        // Position the camera at the center of the 3x3 grid, elevated for a better view
         // Center of the grid is at (0, 0) in chunk coordinates, which translates to (0, 0) in block coordinates
-        // Set height to see a good portion of the 32x32 chunk grid
-        camera.position.set(0.0f, 180.0f, 0.0f)
-        // Look down at a steep angle for a bird's eye view
-        camera.setRotation(1.5f, 0.0f)
+        // Set height to see the entire 3x3 chunk grid clearly
+        camera.position.set(0.0f, 45.0f, 0.0f)
+        // Look down at a moderate angle for a good overview
+        camera.setRotation(1.2f, 0.0f)
         
-        println("Camera positioned above the center of the 32x32 chunk grid at (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
-        println("Set to bird's eye view to better observe the entire grid")
+        println("Camera positioned above the center of the 3x3 chunk grid at (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
+        println("Set to overview angle to observe seamless chunk transitions")
+        println("Expected to see chunks from (-16,-16) to (31,31) in world coordinates")
     }
     
     /**

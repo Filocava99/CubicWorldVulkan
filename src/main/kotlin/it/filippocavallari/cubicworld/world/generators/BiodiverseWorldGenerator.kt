@@ -28,8 +28,11 @@ class BiodiverseWorldGenerator(
     // Biome registry
     private val biomeRegistry: BiomeRegistry = BiomeRegistry
     
-    // Cache to store biome data
+    // Cache to store biome data - stores biome data per block, not per chunk area
     private val biomeCache: MutableMap<Vector2i, Int> = ConcurrentHashMap()
+    
+    // Height cache for ensuring continuity between chunks
+    private val heightCache: MutableMap<Vector2i, Int> = ConcurrentHashMap()
     
     init {
         // Register all biome types
@@ -72,6 +75,9 @@ class BiodiverseWorldGenerator(
         // Process each biome region in the chunk
         processBiomeRegions(chunk, biomeMap, heightMap)
         
+        // Generate caves after terrain generation
+        generateCaves(chunk)
+        
         println("Chunk generation complete for ($chunkX, $chunkZ)")
     }
     
@@ -81,23 +87,70 @@ class BiodiverseWorldGenerator(
     private fun generateBaseHeightMap(chunkX: Int, chunkZ: Int): Array<IntArray> {
         val heightMap = Array(Chunk.SIZE) { IntArray(Chunk.SIZE) }
         
-        for (x in 0 until Chunk.SIZE) {
-            for (z in 0 until Chunk.SIZE) {
-                // Calculate world coordinates
+        // Generate height with additional buffer for smooth blending
+        val bufferSize = 4
+        val extendedHeightMap = Array(Chunk.SIZE + bufferSize * 2) { IntArray(Chunk.SIZE + bufferSize * 2) }
+        
+        // First pass - generate extended height map
+        for (x in -bufferSize until Chunk.SIZE + bufferSize) {
+            for (z in -bufferSize until Chunk.SIZE + bufferSize) {
+                // Calculate ABSOLUTE world coordinates - this is critical for chunk uniqueness
                 val worldX = (chunkX * Chunk.SIZE) + x
                 val worldZ = (chunkZ * Chunk.SIZE) + z
                 
-                // Generate continental noise (large scale terrain features)
-                // Use the actual world coordinates for consistent noise
-                val continentNoise = NoiseFactory.continentNoise(
-                    worldX.toFloat(),
-                    worldZ.toFloat()
-                )
+                // Check height cache first
+                val cacheKey = Vector2i(worldX, worldZ)
+                val cachedHeight = heightCache[cacheKey]
                 
-                // Scale continent noise to create base terrain
-                val baseHeight = CONTINENT_MEAN_HEIGHT + (continentNoise * CONTINENT_HEIGHT_SCALE).toInt()
+                if (cachedHeight != null) {
+                    extendedHeightMap[x + bufferSize][z + bufferSize] = cachedHeight
+                } else {
+                    // Generate continental noise with proper world coordinates
+                    // Add seed offset to ensure different worlds generate different terrain
+                    val continentNoise = NoiseFactory.continentNoise(
+                        worldX.toFloat() + seed * 0.001f,
+                        worldZ.toFloat() + seed * 0.002f
+                    )
+                    
+                    // Add some domain warping for more natural terrain
+                    val warpedNoise = NoiseFactory.domainWarpNoise(
+                        worldX.toFloat() + seed * 0.003f,
+                        worldZ.toFloat() + seed * 0.004f,
+                        warpStrength = 5.0f,
+                        scale = 0.002f
+                    )
+                    
+                    // Combine noises for final height
+                    val combinedNoise = continentNoise * 0.8f + warpedNoise * 0.2f
+                    
+                    // Scale continent noise to create base terrain
+                    val baseHeight = CONTINENT_MEAN_HEIGHT + (combinedNoise * CONTINENT_HEIGHT_SCALE).toInt()
+                    
+                    extendedHeightMap[x + bufferSize][z + bufferSize] = baseHeight
+                    
+                    // Cache the height for consistency
+                    heightCache[cacheKey] = baseHeight
+                }
+            }
+        }
+        
+        // Second pass - apply smoothing and copy to final height map
+        for (x in 0 until Chunk.SIZE) {
+            for (z in 0 until Chunk.SIZE) {
+                // Apply some smoothing with neighbors for better chunk connections
+                var smoothedHeight = 0
+                var count = 0
                 
-                heightMap[x][z] = baseHeight
+                // 3x3 kernel for smoothing
+                for (dx in -1..1) {
+                    for (dz in -1..1) {
+                        val weight = if (dx == 0 && dz == 0) 4 else 1 // Center has more weight
+                        smoothedHeight += extendedHeightMap[x + bufferSize + dx][z + bufferSize + dz] * weight
+                        count += weight
+                    }
+                }
+                
+                heightMap[x][z] = smoothedHeight / count
             }
         }
         
@@ -112,51 +165,38 @@ class BiodiverseWorldGenerator(
         
         for (x in 0 until Chunk.SIZE) {
             for (z in 0 until Chunk.SIZE) {
-                // Calculate world coordinates
+                // Calculate ABSOLUTE world coordinates
                 val worldX = (chunkX * Chunk.SIZE) + x
                 val worldZ = (chunkZ * Chunk.SIZE) + z
                 
-                // Use the cached biome if available
-                val cacheKey = Vector2i((worldX / BIOME_BLEND_AREA), (worldZ / BIOME_BLEND_AREA))
-                var cachedBiomeId = biomeCache[cacheKey]
+                // Generate temperature and humidity with proper world coordinates
+                // Use seed-based offsets to ensure unique worlds
+                val temperatureNoise = NoiseFactory.octavedSimplexNoise(
+                    worldX.toFloat() + seed * 0.1f, 
+                    worldZ.toFloat() + seed * 0.2f,
+                    3,
+                    BIOME_SCALE
+                )
                 
-                if (cachedBiomeId == null) {
-                    // Ensure we use the absolute world coordinates for the noise
-                    // Add seed-based offsets to create variation but maintain consistency
-                    val temperatureNoise = NoiseFactory.octavedSimplexNoise(
-                        worldX.toFloat() + seed % 1000, 
-                        worldZ.toFloat() + seed % 500,
-                        3,
-                        BIOME_SCALE
-                    )
-                    
-                    val humidityNoise = NoiseFactory.octavedSimplexNoise(
-                        worldX.toFloat() + seed % 500, 
-                        worldZ.toFloat() + seed % 1000,
-                        3,
-                        BIOME_SCALE
-                    )
-                    
-                    // Scale to 0-1 range
-                    val temperature = (temperatureNoise + 1.0f) * 0.5f
-                    val humidity = (humidityNoise + 1.0f) * 0.5f
-                    
-                    // Get biome based on climate values
-                    val biome = biomeRegistry.getBiomeByClimate(temperature, humidity)
-                    
-                    // Cache the biome ID
-                    biomeCache[cacheKey] = biome.id
-                    cachedBiomeId = biome.id
-                }
+                val humidityNoise = NoiseFactory.octavedSimplexNoise(
+                    worldX.toFloat() + seed * 0.3f, 
+                    worldZ.toFloat() + seed * 0.4f,
+                    3,
+                    BIOME_SCALE
+                )
                 
-                // Get the primary biome for this position
-                val primaryBiome = biomeRegistry.getBiome(cachedBiomeId)!!
+                // Scale to 0-1 range
+                val temperature = (temperatureNoise + 1.0f) * 0.5f
+                val humidity = (humidityNoise + 1.0f) * 0.5f
+                
+                // Get biome based on climate values
+                val biome = biomeRegistry.getBiomeByClimate(temperature, humidity)
                 
                 // Calculate biome blend factor for this position
                 val blendFactor = calculateBiomeBlendFactor(worldX, worldZ)
                 
                 // Store the biome and blend factor
-                biomeMap[x][z] = Pair(primaryBiome, blendFactor)
+                biomeMap[x][z] = Pair(biome, blendFactor)
             }
         }
         
@@ -168,11 +208,10 @@ class BiodiverseWorldGenerator(
      */
     private fun calculateBiomeBlendFactor(worldX: Int, worldZ: Int): Float {
         // Use Worley noise to create natural biome borders
-        // Ensure we're using absolute world coordinates without any adjustments
-        // that might cause repetition across chunks
+        // Critical: use absolute world coordinates with seed offset
         val borderNoise = NoiseFactory.worleyNoise(
-            worldX.toFloat(),
-            worldZ.toFloat(),
+            worldX.toFloat() + seed * 0.5f,
+            worldZ.toFloat() + seed * 0.6f,
             BIOME_BORDER_SCALE
         )
         
@@ -240,7 +279,7 @@ class BiodiverseWorldGenerator(
         
         for (x in 0 until Chunk.SIZE) {
             for (z in 0 until Chunk.SIZE) {
-                // Calculate world coordinates
+                // Calculate absolute world coordinates
                 val worldX = (chunkX * Chunk.SIZE) + x
                 val worldZ = (chunkZ * Chunk.SIZE) + z
                 
@@ -250,12 +289,10 @@ class BiodiverseWorldGenerator(
                 // Get the base height
                 var baseHeight = heightMap[x][z]
                 
-                // Modify height based on biome - ensure we use absolute world coordinates
-                // This is critical for proper chunk differentiation
+                // Modify height based on biome - pass absolute world coordinates
                 val biomeHeight = biome.getHeight(worldX, worldZ, baseHeight, seed)
                 
                 // Apply the blend factor for smooth transitions
-                // Note: biomeHeight already includes chunk position data
                 baseHeight = (baseHeight * (1.0f - blendFactor) + biomeHeight * blendFactor).toInt()
                 
                 // Clamp to valid range
@@ -263,6 +300,40 @@ class BiodiverseWorldGenerator(
                 
                 // Update the height map
                 heightMap[x][z] = baseHeight
+            }
+        }
+    }
+    
+    /**
+     * Generate caves in the chunk
+     */
+    private fun generateCaves(chunk: Chunk) {
+        val chunkX = chunk.position.x
+        val chunkZ = chunk.position.y
+        
+        // Generate 3D cave noise for the entire chunk
+        for (x in 0 until Chunk.SIZE) {
+            for (z in 0 until Chunk.SIZE) {
+                for (y in 5 until 60) { // Caves only generate below y=60
+                    // Calculate absolute world coordinates
+                    val worldX = (chunkX * Chunk.SIZE) + x
+                    val worldZ = (chunkZ * Chunk.SIZE) + z
+                    
+                    // Generate cave noise with world coordinates
+                    val caveNoise = NoiseFactory.caveNoise(
+                        worldX.toFloat() + seed * 0.7f,
+                        y.toFloat(),
+                        worldZ.toFloat() + seed * 0.8f
+                    )
+                    
+                    // Carve out cave if noise is above threshold
+                    if (caveNoise > 0.7f) {
+                        // Don't carve through bedrock
+                        if (chunk.getBlock(x, y, z) != BlockType.BEDROCK.id) {
+                            chunk.setBlock(x, y, z, BlockType.AIR.id)
+                        }
+                    }
+                }
             }
         }
     }
@@ -314,13 +385,13 @@ class BiodiverseWorldGenerator(
     companion object {
         // World generation constants
         const val CONTINENT_MEAN_HEIGHT = 64
-        const val CONTINENT_HEIGHT_SCALE = 40
+        const val CONTINENT_HEIGHT_SCALE = 20  // Further reduced for flatter terrain
         
         const val BIOME_SCALE = 0.005f
         const val BIOME_BORDER_SCALE = 0.01f
         const val BIOME_BLEND_AREA = 16
         
         const val MIN_HEIGHT = 5
-        const val MAX_HEIGHT = 220
+        const val MAX_HEIGHT = 90  // Further reduced to minimize vertex count
     }
 }

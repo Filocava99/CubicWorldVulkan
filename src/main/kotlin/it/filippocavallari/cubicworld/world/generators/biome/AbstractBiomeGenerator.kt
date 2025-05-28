@@ -17,7 +17,7 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
     // Common terrain constants
     companion object {
         const val SEA_LEVEL = 62
-        const val MAX_HEIGHT = 220
+        const val MAX_HEIGHT = 90  // Reduced to match mesh builder limits
         const val MIN_HEIGHT = 10
         const val BEDROCK_LEVEL = 5
     }
@@ -208,13 +208,15 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
                     // Skip if already air
                     if (chunk.getBlock(x, y, z) == 0) continue
                     
-                    // Calculate world coordinates
+                    // Calculate world coordinates - CRITICAL for proper cave generation
                     val worldX = (chunkX * Chunk.SIZE) + x
                     val worldZ = (chunkZ * Chunk.SIZE) + z
                     
-                    // Generate cave using 3D noise
+                    // Generate cave using 3D noise with seed offset for uniqueness
                     val caveNoise = NoiseFactory.caveNoise(
-                        worldX.toFloat(), y.toFloat(), worldZ.toFloat(),
+                        worldX.toFloat() + seed * 0.001f, 
+                        y.toFloat() + seed * 0.002f, 
+                        worldZ.toFloat() + seed * 0.003f,
                         0.03f
                     )
                     

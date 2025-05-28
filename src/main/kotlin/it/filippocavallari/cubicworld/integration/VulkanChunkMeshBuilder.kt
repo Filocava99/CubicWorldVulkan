@@ -36,6 +36,15 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
     private val normalEast = floatArrayOf(1.0f, 0.0f, 0.0f)
     private val normalWest = floatArrayOf(-1.0f, 0.0f, 0.0f)
     
+    // Constants for mesh limits
+    companion object {
+        const val MAX_VERTICES = 65536  // More conservative limit to avoid buffer overflow
+        const val MAX_INDICES = MAX_VERTICES * 3  // Conservative estimate
+        const val VERTICES_PER_FACE = 4
+        const val INDICES_PER_FACE = 6
+        const val CHUNK_MAX_HEIGHT = 128  // Process terrain up to reasonable height
+    }
+    
     /**
      * Build a mesh from chunk data
      * 
@@ -52,40 +61,117 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         indices.clear()
         
         var vertexCount = 0
-        
-        // Iterate through all blocks in the chunk
-        for (x in 0 until Chunk.SIZE) {
-            for (y in 0 until Chunk.HEIGHT) {
-                for (z in 0 until Chunk.SIZE) {
-                    val blockId = chunk.getBlock(x, y, z)
-                    
-                    // Skip air blocks
-                    if (blockId == 0) continue
-                    
-                    // Add faces that are exposed to air or transparent blocks
-                    vertexCount = addVisibleFaces(chunk, x, y, z, blockId, vertexCount)
+        var facesAdded = 0
+        var skippedFaces = 0
+        val maxYToCheck = 96
+        try {
+            // First pass: count visible faces to estimate memory needs
+            var estimatedFaces = 0
+            for (x in 0 until Chunk.SIZE) {
+                for (y in 0 until minOf(Chunk.HEIGHT, maxYToCheck)) {
+                    for (z in 0 until Chunk.SIZE) {
+                        val blockId = chunk.getBlock(x, y, z)
+                        if (blockId != 0) {
+                            // Count potentially visible faces
+                            if (isBlockFaceVisible(chunk, x, y + 1, z)) estimatedFaces++
+                            if (isBlockFaceVisible(chunk, x, y - 1, z)) estimatedFaces++
+                            if (isBlockFaceVisible(chunk, x, y, z - 1)) estimatedFaces++
+                            if (isBlockFaceVisible(chunk, x, y, z + 1)) estimatedFaces++
+                            if (isBlockFaceVisible(chunk, x + 1, y, z)) estimatedFaces++
+                            if (isBlockFaceVisible(chunk, x - 1, y, z)) estimatedFaces++
+                        }
+                    }
                 }
             }
+            
+            println("Chunk ${chunk.position.x},${chunk.position.y}: Estimated ${estimatedFaces} visible faces")
+            
+            // Check if we might exceed limits
+            if (estimatedFaces * VERTICES_PER_FACE > MAX_VERTICES) {
+                println("WARNING: Chunk ${chunk.position.x},${chunk.position.y} will exceed vertex limit!")
+                println("  Estimated faces: $estimatedFaces")
+                println("  Estimated vertices: ${estimatedFaces * VERTICES_PER_FACE}")
+                println("  Max allowed vertices: $MAX_VERTICES")
+                
+                // Skip this chunk if it's way too complex
+                if (estimatedFaces * VERTICES_PER_FACE > MAX_VERTICES * 1.5) {
+                    println("ERROR: Chunk is too complex to render. Returning empty mesh.")
+                    return ModelData("chunk_${chunk.position.x}_${chunk.position.y}", 
+                                   ArrayList(), ArrayList())
+                }
+            }
+            
+            // Find the actual maximum height in this chunk to avoid processing empty air
+            var actualMaxHeight = 0
+            for (x in 0 until Chunk.SIZE) {
+                for (z in 0 until Chunk.SIZE) {
+                    for (y in 0 until minOf(Chunk.HEIGHT, CHUNK_MAX_HEIGHT)) {
+                        if (chunk.getBlock(x, y, z) != 0) {
+                            actualMaxHeight = maxOf(actualMaxHeight, y)
+                        }
+                    }
+                }
+            }
+            
+            // Add some padding for decorations
+            actualMaxHeight = minOf(actualMaxHeight + 16, CHUNK_MAX_HEIGHT)
+            
+            println("Chunk ${chunk.position.x},${chunk.position.y}: Processing height 0 to $actualMaxHeight (found blocks up to ${actualMaxHeight - 16})")
+            
+            // Iterate through all blocks in the chunk up to actual terrain height
+            for (x in 0 until Chunk.SIZE) {
+                for (y in 0..actualMaxHeight) {
+                    for (z in 0 until Chunk.SIZE) {
+                        val blockId = chunk.getBlock(x, y, z)
+                        
+                        // Skip air blocks
+                        if (blockId == 0) continue
+                        
+                        // Check if we're approaching vertex limit
+                        // A full cube can have up to 24 vertices (6 faces * 4 vertices)
+                        if (vertexCount + 24 > MAX_VERTICES) {
+                            println("WARNING: Reached vertex limit at block ($x, $y, $z) in chunk ${chunk.position.x},${chunk.position.y}")
+                            println("  Current vertices: $vertexCount")
+                            println("  Faces generated: $facesAdded")
+                            println("  This chunk is too dense - consider implementing LOD system")
+                            // Instead of breaking, we'll continue but implement chunk splitting in the future
+                            // For now, we'll finish this chunk to avoid gaps
+                        }
+                        
+                        // Convert to world coordinates for proper chunk offset
+                        val worldX = chunk.getWorldX() + x
+                        val worldZ = chunk.getWorldZ() + z
+                        
+                        // Add faces that are exposed to air or transparent blocks
+                        val prevVertexCount = vertexCount
+                        vertexCount = addVisibleFaces(chunk, x, y, z, blockId, vertexCount, worldX.toFloat(), y.toFloat(), worldZ.toFloat())
+                        
+                        // Count faces added
+                        facesAdded += (vertexCount - prevVertexCount) / 4
+                    }
+                    
+                    // Continue processing even if approaching limits to avoid gaps
+                    // In a production system, implement proper LOD or chunk subdivision here
+                }
+            }
+            
+        } catch (e: Exception) {
+            println("ERROR during mesh generation for chunk ${chunk.position.x},${chunk.position.y}: ${e.message}")
+            e.printStackTrace()
         }
         
+        println("Chunk ${chunk.position.x},${chunk.position.y}: Generated ${facesAdded} faces, ${vertexCount} vertices, ${indices.size} indices")
+        
+        // Validate mesh completeness
+        validateChunkMesh(chunk, vertexCount, facesAdded)
+        
         // Convert lists to arrays for ModelData
-        val posArray = FloatArray(positions.size)
-        positions.forEachIndexed { index, value -> posArray[index] = value }
-        
-        val texCoordsArray = FloatArray(textCoords.size)
-        textCoords.forEachIndexed { index, value -> texCoordsArray[index] = value }
-        
-        val normalsArray = FloatArray(normals.size)
-        normals.forEachIndexed { index, value -> normalsArray[index] = value }
-        
-        val tangentsArray = FloatArray(tangents.size)
-        tangents.forEachIndexed { index, value -> tangentsArray[index] = value }
-        
-        val biTangentsArray = FloatArray(biTangents.size)
-        biTangents.forEachIndexed { index, value -> biTangentsArray[index] = value }
-        
-        val indicesArray = IntArray(indices.size)
-        indices.forEachIndexed { index, value -> indicesArray[index] = value }
+        val posArray = positions.toFloatArray()
+        val texCoordsArray = textCoords.toFloatArray()
+        val normalsArray = normals.toFloatArray()
+        val tangentsArray = tangents.toFloatArray()
+        val biTangentsArray = biTangents.toFloatArray()
+        val indicesArray = indices.toIntArray()
         
         // Create material list
         val materialList = ArrayList<ModelData.Material>()
@@ -101,10 +187,12 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         val normalFile = java.io.File(normalAtlasPath)
         val specularFile = java.io.File(specularAtlasPath)
         
-        println("Atlas files exist check:")
-        println("Diffuse atlas: ${diffuseFile.exists()} (size: ${if (diffuseFile.exists()) diffuseFile.length() else 0} bytes)")
-        println("Normal atlas: ${normalFile.exists()} (size: ${if (normalFile.exists()) normalFile.length() else 0} bytes)")
-        println("Specular atlas: ${specularFile.exists()} (size: ${if (specularFile.exists()) specularFile.length() else 0} bytes)")
+        if (!diffuseFile.exists() || !normalFile.exists() || !specularFile.exists()) {
+            println("WARNING: Atlas files missing!")
+            println("Diffuse atlas: ${diffuseFile.exists()} at $diffuseAtlasPath")
+            println("Normal atlas: ${normalFile.exists()} at $normalAtlasPath")
+            println("Specular atlas: ${specularFile.exists()} at $specularAtlasPath")
+        }
         
         materialList.add(ModelData.Material(
             diffuseAtlasPath,  // Absolute texture path
@@ -120,25 +208,35 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         
         // Only add mesh if we have vertices
         if (positions.isNotEmpty()) {
-            meshDataList.add(ModelData.MeshData(
-                posArray,
-                normalsArray,
-                tangentsArray,
-                biTangentsArray,
-                texCoordsArray,
-                indicesArray,
-                0  // Material index
-            ))
+            // Create mesh data with bounds checking
+            try {
+                meshDataList.add(ModelData.MeshData(
+                    posArray,
+                    normalsArray,
+                    tangentsArray,
+                    biTangentsArray,
+                    texCoordsArray,
+                    indicesArray,
+                    0  // Material index
+                ))
+            } catch (e: Exception) {
+                println("ERROR creating MeshData for chunk ${chunk.position.x},${chunk.position.y}: ${e.message}")
+                e.printStackTrace()
+            }
+        } else {
+            println("WARNING: Chunk ${chunk.position.x},${chunk.position.y} has no visible faces!")
         }
         
         // Generate a unique ID for this mesh
         val modelId = "chunk_${chunk.position.x}_${chunk.position.y}"
-        println("Creating model with ID: $modelId")
         
         // Print debug information about the mesh
         println("Created mesh for chunk: $modelId")
+        println("  Chunk grid position: (${chunk.position.x}, ${chunk.position.y})")
+        println("  World position: (${chunk.getWorldX()}, ${chunk.getWorldZ()})")
         println("  Vertex count: ${positions.size / 3}")
         println("  Index count: ${indices.size}")
+        println("  Triangles: ${indices.size / 3}")
         println("  Mesh data list size: ${meshDataList.size}")
         
         // Return the model data
@@ -149,11 +247,14 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
      * Add visible faces for a block
      * 
      * @param chunk The chunk
-     * @param x Block x position
+     * @param x Block x position (local to chunk)
      * @param y Block y position
-     * @param z Block z position
+     * @param z Block z position (local to chunk)
      * @param blockId The block type
      * @param vertexCount Current vertex count
+     * @param worldX World X position (for rendering)
+     * @param worldY World Y position (for rendering)
+     * @param worldZ World Z position (for rendering)
      * @return New vertex count
      */
     private fun addVisibleFaces(
@@ -162,74 +263,82 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         y: Int, 
         z: Int, 
         blockId: Int, 
-        vertexCount: Int
+        vertexCount: Int,
+        worldX: Float,
+        worldY: Float,
+        worldZ: Float
     ): Int {
         var newVertexCount = vertexCount
         
-        // Check and add top face
-        if (isBlockFaceVisible(chunk, x, y + 1, z)) {
-            addBlockFace(
-                x.toFloat(), y.toFloat(), z.toFloat(),
-                FaceDirection.UP,
-                blockId,
-                newVertexCount
-            )
-            newVertexCount += 4  // 4 vertices per face
-        }
-        
-        // Check and add bottom face
-        if (isBlockFaceVisible(chunk, x, y - 1, z)) {
-            addBlockFace(
-                x.toFloat(), y.toFloat(), z.toFloat(),
-                FaceDirection.DOWN,
-                blockId,
-                newVertexCount
-            )
-            newVertexCount += 4
-        }
-        
-        // Check and add north face
-        if (isBlockFaceVisible(chunk, x, y, z - 1)) {
-            addBlockFace(
-                x.toFloat(), y.toFloat(), z.toFloat(),
-                FaceDirection.NORTH,
-                blockId,
-                newVertexCount
-            )
-            newVertexCount += 4
-        }
-        
-        // Check and add south face
-        if (isBlockFaceVisible(chunk, x, y, z + 1)) {
-            addBlockFace(
-                x.toFloat(), y.toFloat(), z.toFloat(),
-                FaceDirection.SOUTH,
-                blockId,
-                newVertexCount
-            )
-            newVertexCount += 4
-        }
-        
-        // Check and add east face
-        if (isBlockFaceVisible(chunk, x + 1, y, z)) {
-            addBlockFace(
-                x.toFloat(), y.toFloat(), z.toFloat(),
-                FaceDirection.EAST,
-                blockId,
-                newVertexCount
-            )
-            newVertexCount += 4
-        }
-        
-        // Check and add west face
-        if (isBlockFaceVisible(chunk, x - 1, y, z)) {
-            addBlockFace(
-                x.toFloat(), y.toFloat(), z.toFloat(),
-                FaceDirection.WEST,
-                blockId,
-                newVertexCount
-            )
-            newVertexCount += 4
+        try {
+            // Check and add top face
+            if (isBlockFaceVisible(chunk, x, y + 1, z)) {
+                addBlockFace(
+                    worldX, worldY, worldZ,
+                    FaceDirection.UP,
+                    blockId,
+                    newVertexCount
+                )
+                newVertexCount += 4  // 4 vertices per face
+            }
+            
+            // Check and add bottom face
+            if (isBlockFaceVisible(chunk, x, y - 1, z)) {
+                addBlockFace(
+                    worldX, worldY, worldZ,
+                    FaceDirection.DOWN,
+                    blockId,
+                    newVertexCount
+                )
+                newVertexCount += 4
+            }
+            
+            // Check and add north face
+            if (isBlockFaceVisible(chunk, x, y, z - 1)) {
+                addBlockFace(
+                    worldX, worldY, worldZ,
+                    FaceDirection.NORTH,
+                    blockId,
+                    newVertexCount
+                )
+                newVertexCount += 4
+            }
+            
+            // Check and add south face
+            if (isBlockFaceVisible(chunk, x, y, z + 1)) {
+                addBlockFace(
+                    worldX, worldY, worldZ,
+                    FaceDirection.SOUTH,
+                    blockId,
+                    newVertexCount
+                )
+                newVertexCount += 4
+            }
+            
+            // Check and add east face
+            if (isBlockFaceVisible(chunk, x + 1, y, z)) {
+                addBlockFace(
+                    worldX, worldY, worldZ,
+                    FaceDirection.EAST,
+                    blockId,
+                    newVertexCount
+                )
+                newVertexCount += 4
+            }
+            
+            // Check and add west face
+            if (isBlockFaceVisible(chunk, x - 1, y, z)) {
+                addBlockFace(
+                    worldX, worldY, worldZ,
+                    FaceDirection.WEST,
+                    blockId,
+                    newVertexCount
+                )
+                newVertexCount += 4
+            }
+        } catch (e: Exception) {
+            println("ERROR adding faces for block at ($x, $y, $z): ${e.message}")
+            e.printStackTrace()
         }
         
         return newVertexCount
@@ -239,9 +348,9 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
      * Check if a block face is visible (not obscured by another block)
      * 
      * @param chunk The chunk
-     * @param x Adjacent block x
+     * @param x Adjacent block x (local to chunk)
      * @param y Adjacent block y
-     * @param z Adjacent block z
+     * @param z Adjacent block z (local to chunk)
      * @return true if face is visible
      */
     private fun isBlockFaceVisible(chunk: Chunk, x: Int, y: Int, z: Int): Boolean {
@@ -256,17 +365,70 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
             val worldZ = chunk.getWorldZ() + z
             
             // Get the block from the world (may return 0 if chunk not loaded)
-            val blockType = chunk.world?.getBlockType(worldX, y, worldZ) ?: 0
+            val adjacentBlock = chunk.world?.getBlock(worldX, y, worldZ) ?: 0
             
-            // Debug print to help diagnose cross-chunk visibility
-            println("Cross-chunk check at ($x, $y, $z): blockType=$blockType")
-            
-            return blockType == 0 || isTransparent(blockType)
+            // Face is visible if adjacent block is air or transparent
+            return adjacentBlock == 0 || isTransparent(adjacentBlock)
         }
         
         // Check if the adjacent block is air or transparent
         val blockType = chunk.getBlock(x, y, z)
         return blockType == 0 || isTransparent(blockType)
+    }
+    
+    /**
+     * Validate chunk mesh completeness
+     */
+    private fun validateChunkMesh(chunk: Chunk, vertexCount: Int, facesAdded: Int) {
+        // Check if the chunk might be incomplete
+        val expectedBlocks = countNonAirBlocks(chunk)
+        val expectedFaces = estimateVisibleFaces(chunk)
+        
+        if (facesAdded < expectedFaces * 0.8) {
+            println("WARNING: Chunk ${chunk.position.x},${chunk.position.y} may be incomplete:")
+            println("  Expected ~$expectedFaces faces, got $facesAdded")
+            println("  Non-air blocks: $expectedBlocks")
+            println("  Vertices generated: $vertexCount")
+        }
+    }
+    
+    /**
+     * Count non-air blocks in chunk
+     */
+    private fun countNonAirBlocks(chunk: Chunk): Int {
+        var count = 0
+        for (x in 0 until Chunk.SIZE) {
+            for (y in 0 until CHUNK_MAX_HEIGHT) {
+                for (z in 0 until Chunk.SIZE) {
+                    if (chunk.getBlock(x, y, z) != 0) count++
+                }
+            }
+        }
+        return count
+    }
+    
+    /**
+     * Estimate visible faces for validation
+     */
+    private fun estimateVisibleFaces(chunk: Chunk): Int {
+        var visibleFaces = 0
+        for (x in 0 until Chunk.SIZE) {
+            for (y in 0 until CHUNK_MAX_HEIGHT) {
+                for (z in 0 until Chunk.SIZE) {
+                    val blockId = chunk.getBlock(x, y, z)
+                    if (blockId != 0) {
+                        // Count potentially visible faces
+                        if (isBlockFaceVisible(chunk, x, y + 1, z)) visibleFaces++
+                        if (isBlockFaceVisible(chunk, x, y - 1, z)) visibleFaces++
+                        if (isBlockFaceVisible(chunk, x, y, z - 1)) visibleFaces++
+                        if (isBlockFaceVisible(chunk, x, y, z + 1)) visibleFaces++
+                        if (isBlockFaceVisible(chunk, x + 1, y, z)) visibleFaces++
+                        if (isBlockFaceVisible(chunk, x - 1, y, z)) visibleFaces++
+                    }
+                }
+            }
+        }
+        return visibleFaces
     }
     
     /**
@@ -284,9 +446,9 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
     /**
      * Add a block face to the mesh
      * 
-     * @param x Block x position
-     * @param y Block y position
-     * @param z Block z position
+     * @param x Block x position (world coordinates)
+     * @param y Block y position (world coordinates)
+     * @param z Block z position (world coordinates)
      * @param face The face direction
      * @param blockId The block type
      * @param vertexIndex Current vertex index
@@ -330,18 +492,8 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
             }
         }
         
-        // Debug output for stone block
-        if (blockId == BlockType.STONE.id) {
-            println("DEBUG: Creating stone block face (${face.name}) with texture ID: $textureId")
-        }
-        
         // Get texture region from texture atlas using the managed texture ID
         val region = textureStitcher.getTextureRegion(textureId)
-        
-        // Debug output for texture coordinates
-        if (blockId == BlockType.STONE.id) {
-            println("DEBUG: Stone texture region: u1=${region.u1}, v1=${region.v1}, u2=${region.u2}, v2=${region.v2}")
-        }
         
         // Get vertex positions and normals based on face direction
         when (face) {
@@ -445,7 +597,7 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
             }
         }
         
-        // Add indices for triangles
+        // Add indices for triangles (ensure correct winding order)
         indices.add(vertexIndex)
         indices.add(vertexIndex + 1)
         indices.add(vertexIndex + 2)

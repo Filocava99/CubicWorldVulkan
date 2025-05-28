@@ -146,10 +146,16 @@ class Chunk(x: Int, z: Int, val world: World? = null) {
          */
         fun worldToChunk(worldCoord: Int): Int {
             // Handle negative coordinates correctly
-            return if (worldCoord < 0)
-                ((worldCoord + 1) / SIZE - 1)
-            else
-                (worldCoord / SIZE)
+            // For negative coordinates, we need to ensure proper flooring behavior
+            return if (worldCoord < 0) {
+                // Example: worldCoord = -17, SIZE = 16
+                // Should return -2 (chunk -2 contains blocks -32 to -17)
+                ((worldCoord + 1) / SIZE) - 1
+            } else {
+                // Example: worldCoord = 17, SIZE = 16
+                // Should return 1 (chunk 1 contains blocks 16 to 31)
+                worldCoord / SIZE
+            }
         }
     }
 }
