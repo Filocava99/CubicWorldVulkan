@@ -50,11 +50,18 @@ class BiodiverseWorldGenerator(
         biomeRegistry.register(ForestBiomeGenerator())
         biomeRegistry.register(DesertBiomeGenerator())
         biomeRegistry.register(MountainBiomeGenerator())
+        biomeRegistry.register(PlainsBiomeGenerator())
+        biomeRegistry.register(SwampBiomeGenerator())
+        biomeRegistry.register(TaigaBiomeGenerator())
+        biomeRegistry.register(SavannaBiomeGenerator())
         
         // Register mod-inspired biomes
         biomeRegistry.register(MagicalForestBiomeGenerator())
         
-        // More biomes would be registered here in a full implementation
+        println("Registered ${biomeRegistry.count()} biomes:")
+        for (biome in biomeRegistry.getAllBiomes()) {
+            println("  - ${biome.name} (ID: ${biome.id}) - Temp: ${biome.temperature}, Humidity: ${biome.humidity}")
+        }
     }
     
     /**
@@ -175,10 +182,11 @@ class BiodiverseWorldGenerator(
     }
     
     /**
-     * Generate the biome distribution map for this chunk using Worley noise
+     * Generate the biome distribution map for this chunk using improved climate system
      */
     private fun generateBiomeMap(chunkX: Int, chunkZ: Int): Array<Array<Pair<BiomeGenerator, Float>>> {
         val biomeMap = Array(Chunk.SIZE) { Array(Chunk.SIZE) { Pair(biomeRegistry.getBiome(1)!!, 1.0f) } }
+        val biomeCounts = mutableMapOf<String, Int>()
         
         for (x in 0 until Chunk.SIZE) {
             for (z in 0 until Chunk.SIZE) {
@@ -186,28 +194,52 @@ class BiodiverseWorldGenerator(
                 val worldX = (chunkX * Chunk.SIZE) + x
                 val worldZ = (chunkZ * Chunk.SIZE) + z
                 
-                // Generate temperature and humidity with proper world coordinates
-                // Use seed-based offsets to ensure unique worlds
-                val temperatureNoise = NoiseFactory.octavedSimplexNoise(
-                    worldX.toFloat() + seed * 0.1f, 
-                    worldZ.toFloat() + seed * 0.2f,
-                    3,
-                    BIOME_SCALE
+                // Generate temperature and humidity with enhanced variation
+                // Use multiple octaves for more complex climate patterns
+                val baseTemperatureNoise = NoiseFactory.octavedSimplexNoise(
+                    worldX.toFloat() * 0.001f + seed * 0.1f, 
+                    worldZ.toFloat() * 0.001f + seed * 0.2f,
+                    4,  // More octaves for detail
+                    BIOME_SCALE * 0.5f  // Larger scale for bigger biome regions
                 )
                 
-                val humidityNoise = NoiseFactory.octavedSimplexNoise(
-                    worldX.toFloat() + seed * 0.3f, 
-                    worldZ.toFloat() + seed * 0.4f,
-                    3,
-                    BIOME_SCALE
+                val baseHumidityNoise = NoiseFactory.octavedSimplexNoise(
+                    worldX.toFloat() * 0.001f + seed * 0.3f, 
+                    worldZ.toFloat() * 0.001f + seed * 0.4f,
+                    4,  // More octaves for detail
+                    BIOME_SCALE * 0.5f  // Larger scale for bigger biome regions
                 )
                 
-                // Scale to 0-1 range
-                val temperature = (temperatureNoise + 1.0f) * 0.5f
-                val humidity = (humidityNoise + 1.0f) * 0.5f
+                // Add continental drift effects for large-scale climate variation
+                val continentalTempShift = NoiseFactory.simplexNoise(
+                    worldX.toFloat() * 0.0001f + seed * 0.5f,
+                    worldZ.toFloat() * 0.0001f + seed * 0.6f,
+                    1.0f
+                ) * 0.3f
+                
+                val continentalHumidityShift = NoiseFactory.simplexNoise(
+                    worldX.toFloat() * 0.0001f + seed * 0.7f,
+                    worldZ.toFloat() * 0.0001f + seed * 0.8f,
+                    1.0f
+                ) * 0.3f
+                
+                // Combine noise values and ensure full range usage
+                var temperature = (baseTemperatureNoise + 1.0f) * 0.5f + continentalTempShift
+                var humidity = (baseHumidityNoise + 1.0f) * 0.5f + continentalHumidityShift
+                
+                // Enhance contrast to ensure all biome types appear
+                temperature = enhanceContrast(temperature)
+                humidity = enhanceContrast(humidity)
+                
+                // Clamp to valid range
+                temperature = temperature.coerceIn(0.0f, 1.0f)
+                humidity = humidity.coerceIn(0.0f, 1.0f)
                 
                 // Get biome based on climate values
                 val biome = biomeRegistry.getBiomeByClimate(temperature, humidity)
+                
+                // Track biome distribution for debugging
+                biomeCounts[biome.name] = (biomeCounts[biome.name] ?: 0) + 1
                 
                 // Calculate biome blend factor for this position
                 val blendFactor = calculateBiomeBlendFactor(worldX, worldZ)
@@ -217,7 +249,25 @@ class BiodiverseWorldGenerator(
             }
         }
         
+        // Print biome distribution for this chunk
+        if (biomeCounts.size > 1) {
+            println("Chunk ($chunkX, $chunkZ) biome distribution:")
+            for ((biomeName, count) in biomeCounts.toList().sortedByDescending { it.second }) {
+                val percentage = (count * 100) / (Chunk.SIZE * Chunk.SIZE)
+                println("  - $biomeName: $count blocks ($percentage%)")
+            }
+        }
+        
         return biomeMap
+    }
+    
+    /**
+     * Enhance contrast in climate values to ensure all biome types are represented
+     */
+    private fun enhanceContrast(value: Float): Float {
+        // Apply S-curve to enhance contrast
+        val normalized = value.coerceIn(0.0f, 1.0f)
+        return (normalized * normalized * (3.0f - 2.0f * normalized))
     }
     
     /**
