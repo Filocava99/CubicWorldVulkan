@@ -17,8 +17,8 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
     // Common terrain constants
     companion object {
         const val SEA_LEVEL = 62
-        const val MAX_HEIGHT = 90  // Reduced to match mesh builder limits
-        const val MIN_HEIGHT = 10
+        const val MAX_HEIGHT = 180  // Updated to match world generator limits
+        const val MIN_HEIGHT = 1
         const val BEDROCK_LEVEL = 5
     }
     
@@ -109,12 +109,12 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
     ) {
         // Define ore parameters - type, frequency, min/max height, vein size
         val oreTypes = arrayOf(
-            OreType(BlockType.COAL_ORE.id, 20, 5, 128, 8, seed),
-            OreType(BlockType.IRON_ORE.id, 15, 5, 64, 6, seed),
-            OreType(BlockType.GOLD_ORE.id, 8, 5, 32, 6, seed),
-            OreType(BlockType.DIAMOND_ORE.id, 3, 5, 16, 4, seed),
-            OreType(BlockType.REDSTONE_ORE.id, 10, 5, 32, 5, seed),
-            OreType(BlockType.LAPIS_ORE.id, 5, 5, 32, 4, seed)
+            OreType(BlockType.COAL_ORE.id, 20, 5, 160, 8, seed),  // Increased max height
+            OreType(BlockType.IRON_ORE.id, 15, 5, 128, 6, seed),  // Increased max height
+            OreType(BlockType.GOLD_ORE.id, 8, 5, 64, 6, seed),
+            OreType(BlockType.DIAMOND_ORE.id, 3, 5, 32, 4, seed),
+            OreType(BlockType.REDSTONE_ORE.id, 10, 5, 64, 5, seed), // Increased max height
+            OreType(BlockType.LAPIS_ORE.id, 5, 5, 48, 4, seed)      // Increased max height
         )
         
         val endX = min(startX + width, Chunk.SIZE)
@@ -201,8 +201,8 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
         // 3D Perlin noise for cave generation
         for (x in startX until endX) {
             for (z in startZ until endZ) {
-                // Get cave ceiling based on height
-                val caveCeiling = SEA_LEVEL - 5
+                // Get cave ceiling based on reasonable underground depth
+                val caveCeiling = 120  // Increased to allow caves throughout terrain
                 
                 for (y in BEDROCK_LEVEL + 2 until caveCeiling) {
                     // Skip if already air

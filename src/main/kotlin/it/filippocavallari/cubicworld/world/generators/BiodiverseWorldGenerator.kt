@@ -64,10 +64,27 @@ class BiodiverseWorldGenerator(
         val chunkX = chunk.position.x
         val chunkZ = chunk.position.y
         
-        println("Generating diverse chunk at ($chunkX, $chunkZ)")
+        println("Generating diverse chunk at ($chunkX, $chunkZ) - Height range: $MIN_HEIGHT to $MAX_HEIGHT")
         
         // Generate the base height map for this chunk
         val heightMap = generateBaseHeightMap(chunkX, chunkZ)
+        
+        // Calculate height statistics for this chunk
+        var minHeightInChunk = MAX_HEIGHT
+        var maxHeightInChunk = MIN_HEIGHT
+        var totalHeight = 0
+        
+        for (x in 0 until Chunk.SIZE) {
+            for (z in 0 until Chunk.SIZE) {
+                val height = heightMap[x][z]
+                minHeightInChunk = kotlin.math.min(minHeightInChunk, height)
+                maxHeightInChunk = kotlin.math.max(maxHeightInChunk, height)
+                totalHeight += height
+            }
+        }
+        
+        val avgHeight = totalHeight / (Chunk.SIZE * Chunk.SIZE)
+        println("  Chunk height stats: Min=$minHeightInChunk, Max=$maxHeightInChunk, Avg=$avgHeight")
         
         // Generate the biome distribution for this chunk
         val biomeMap = generateBiomeMap(chunkX, chunkZ)
@@ -78,7 +95,7 @@ class BiodiverseWorldGenerator(
         // Generate caves after terrain generation
         generateCaves(chunk)
         
-        println("Chunk generation complete for ($chunkX, $chunkZ)")
+        println("Chunk generation complete for ($chunkX, $chunkZ) - Full height range utilized")
     }
     
     /**
@@ -311,10 +328,11 @@ class BiodiverseWorldGenerator(
         val chunkX = chunk.position.x
         val chunkZ = chunk.position.y
         
-        // Generate 3D cave noise for the entire chunk
+        // Generate 3D cave noise for the entire chunk with increased height range
         for (x in 0 until Chunk.SIZE) {
             for (z in 0 until Chunk.SIZE) {
-                for (y in 5 until 60) { // Caves only generate below y=60
+                // Caves generate from bedrock level up to 120 (increased from 60)
+                for (y in 5 until 120) { 
                     // Calculate absolute world coordinates
                     val worldX = (chunkX * Chunk.SIZE) + x
                     val worldZ = (chunkZ * Chunk.SIZE) + z
@@ -385,13 +403,13 @@ class BiodiverseWorldGenerator(
     companion object {
         // World generation constants
         const val CONTINENT_MEAN_HEIGHT = 64
-        const val CONTINENT_HEIGHT_SCALE = 20  // Further reduced for flatter terrain
+        const val CONTINENT_HEIGHT_SCALE = 35  // Increased for more varied terrain
         
         const val BIOME_SCALE = 0.005f
         const val BIOME_BORDER_SCALE = 0.01f
         const val BIOME_BLEND_AREA = 16
         
-        const val MIN_HEIGHT = 5
-        const val MAX_HEIGHT = 90  // Further reduced to minimize vertex count
+        const val MIN_HEIGHT = 1
+        const val MAX_HEIGHT = 180  // Significantly increased to allow full terrain generation
     }
 }
