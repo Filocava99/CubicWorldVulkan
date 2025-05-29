@@ -4,18 +4,12 @@ import org.joml.*;
 
 public class Camera {
 
-    private Vector3f direction;
     private boolean hasMoved;
     private Vector3f position;
-    private Vector3f right;
     private Vector2f rotation;
-    private Vector3f up;
     private Matrix4f viewMatrix;
 
     public Camera() {
-        direction = new Vector3f();
-        right = new Vector3f();
-        up = new Vector3f();
         position = new Vector3f();
         viewMatrix = new Matrix4f();
         rotation = new Vector2f();
@@ -39,38 +33,50 @@ public class Camera {
     }
 
     public void moveBackwards(float inc) {
-        viewMatrix.positiveZ(direction).negate().mul(inc);
-        position.sub(direction);
+        // Move backward based on horizontal rotation only (ignore pitch)
+        float x = (float) java.lang.Math.sin(rotation.y) * inc;
+        float z = (float) java.lang.Math.cos(rotation.y) * inc;
+        position.x -= x;
+        position.z += z;
         recalculate();
     }
 
     public void moveDown(float inc) {
-        viewMatrix.positiveY(up).mul(inc);
-        position.sub(up);
+        // Move along negative Y axis (world coordinates)
+        position.y -= inc;
         recalculate();
     }
 
     public void moveForward(float inc) {
-        viewMatrix.positiveZ(direction).negate().mul(inc);
-        position.add(direction);
+        // Move forward based on horizontal rotation only (ignore pitch)
+        float x = (float) java.lang.Math.sin(rotation.y) * inc;
+        float z = (float) java.lang.Math.cos(rotation.y) * inc;
+        position.x += x;
+        position.z -= z;
         recalculate();
     }
 
     public void moveLeft(float inc) {
-        viewMatrix.positiveX(right).mul(inc);
-        position.sub(right);
+        // Strafe left based on horizontal rotation only (ignore pitch)
+        float x = (float) java.lang.Math.sin(rotation.y - java.lang.Math.PI/2) * inc;
+        float z = (float) java.lang.Math.cos(rotation.y - java.lang.Math.PI/2) * inc;
+        position.x += x;
+        position.z -= z;
         recalculate();
     }
 
     public void moveRight(float inc) {
-        viewMatrix.positiveX(right).mul(inc);
-        position.add(right);
+        // Strafe right based on horizontal rotation only (ignore pitch)
+        float x = (float) java.lang.Math.sin(rotation.y + java.lang.Math.PI/2) * inc;
+        float z = (float) java.lang.Math.cos(rotation.y + java.lang.Math.PI/2) * inc;
+        position.x += x;
+        position.z -= z;
         recalculate();
     }
 
     public void moveUp(float inc) {
-        viewMatrix.positiveY(up).mul(inc);
-        position.add(up);
+        // Move along positive Y axis (world coordinates)
+        position.y += inc;
         recalculate();
     }
 

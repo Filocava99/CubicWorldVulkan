@@ -286,10 +286,13 @@ class CubicWorldEngine : IAppLogic {
         println("  Load distance: ${WORLD_RENDER_DISTANCE} chunks in each direction")
         println("  Circular loading pattern prioritizes closest chunks")
         println("")
-        println("Movement controls:")
-        println("  WASD: Move horizontally")
-        println("  Space: Move up")
-        println("  Shift: Move down")
+        println("Movement controls (FPS-style):")
+        println("  W: Move forward (based on horizontal look direction)")
+        println("  S: Move backward (based on horizontal look direction)")
+        println("  A: Strafe left")
+        println("  D: Strafe right")
+        println("  Space: Move up (Y+)")
+        println("  Shift: Move down (Y-)")
         println("  Mouse: Look around")
         println("  ESC: Toggle mouse capture")
         println("========================================\n")
@@ -373,10 +376,12 @@ class CubicWorldEngine : IAppLogic {
             // Only process mouse movement if there's actual displacement
             if (displVec.x != 0.0f || displVec.y != 0.0f) {
                 // Apply mouse movements to camera rotation
-                // EXPLICITLY INVERT the horizontal component (yaw) here
+                // Correct axis mapping:
+                // - Mouse X movement (horizontal) → Yaw (Y-axis rotation, horizontal camera rotation)
+                // - Mouse Y movement (vertical) → Pitch (X-axis rotation, vertical camera rotation)
                 camera.addRotation(
-                    Math.toRadians((displVec.x * MOUSE_SENSITIVITY).toDouble()).toFloat(),     // Pitch (up/down)
-                    Math.toRadians((-displVec.y * MOUSE_SENSITIVITY).toDouble()).toFloat()     // Yaw (INVERTED)
+                    Math.toRadians((displVec.x * MOUSE_SENSITIVITY).toDouble()).toFloat(),     // Mouse Y → Pitch (vertical rotation)
+                    Math.toRadians((displVec.y * MOUSE_SENSITIVITY).toDouble()).toFloat()      // Mouse X → Yaw (horizontal rotation)
                 )
                 
                 // Reset cursor position to center after processing movement
