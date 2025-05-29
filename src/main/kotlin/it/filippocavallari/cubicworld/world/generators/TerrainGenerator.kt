@@ -35,7 +35,7 @@ class TerrainGenerator : WorldGenerator {
 
                 for (localY in 0 until Chunk.HEIGHT) {
                     val worldY = worldYOffset + localY
-                    var blockId = BlockType.AIR.id // Default to air
+                    var blockId: Int // Default to air - Initializer removed as it's always set
 
                     // Determine block type based on worldY, surfaceHeightWorldY, biome, etc.
                     if (worldY <= BEDROCK_LEVEL) {

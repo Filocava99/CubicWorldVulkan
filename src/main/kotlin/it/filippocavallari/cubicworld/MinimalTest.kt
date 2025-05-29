@@ -2,6 +2,7 @@ package it.filippocavallari.cubicworld
 
 import it.filippocavallari.cubicworld.data.block.BlockType
 import it.filippocavallari.cubicworld.world.chunk.Chunk
+import it.filippocavallari.cubicworld.utils.BufferUtils.floatArrayToByteArray
 import org.joml.Vector3f
 import org.lwjgl.glfw.GLFW
 import org.vulkanb.eng.Engine
@@ -178,12 +179,14 @@ class MinimalTest : IAppLogic {
         val materials = listOf(ModelData.Material())
         
         // Create mesh data
+        val posByteArray = floatArrayToByteArray(positions)
+
         val meshes = listOf(
             ModelData.MeshData(
-                positions,
+                posByteArray, // Use ByteArray
                 normals,
-                tangents,
-                biTangents,
+                // tangents, // Removed
+                // biTangents, // Removed
                 textCoords,
                 indices,
                 0 // Material index

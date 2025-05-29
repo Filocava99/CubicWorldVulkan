@@ -20,10 +20,10 @@ fun main() {
     
     // Test 1: Generate adjacent chunks and verify they have different content
     println("\n=== Test 1: Chunk Uniqueness ===")
-    val chunk1 = world.loadChunkSynchronously(0, 0)
-    val chunk2 = world.loadChunkSynchronously(1, 0)
-    val chunk3 = world.loadChunkSynchronously(0, 1)
-    val chunk4 = world.loadChunkSynchronously(1, 1)
+    val chunk1 = world.loadChunkSynchronously(0, 0, 0) // Assuming Y=0 for these test chunks
+    val chunk2 = world.loadChunkSynchronously(1, 0, 0) // Assuming Y=0
+    val chunk3 = world.loadChunkSynchronously(0, 0, 1) // Assuming Y=0, and (0,1) means x=0, z=1
+    val chunk4 = world.loadChunkSynchronously(1, 0, 1) // Assuming Y=0, and (1,1) means x=1, z=1
     
     // Compare chunks by sampling blocks at same local positions
     var identicalBlocks = 0
@@ -121,8 +121,8 @@ fun main() {
     println("\n=== Test 3: Chunk Completeness ===")
     
     // Count non-air blocks in each layer
-    for (chunkCoord in listOf(Pair(0, 0), Pair(1, 0), Pair(0, 1), Pair(1, 1))) {
-        val chunk = world.getChunk(chunkCoord.first, chunkCoord.second)!!
+    for (chunkCoord in listOf(Pair(0, 0), Pair(1, 0), Pair(0, 1), Pair(1, 1))) { // These are (x,z) pairs
+        val chunk = world.getChunk(chunkCoord.first, 0, chunkCoord.second)!! // Assuming Y=0 for getChunk
         
         var totalBlocks = 0
         var airBlocks = 0

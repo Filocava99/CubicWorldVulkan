@@ -110,7 +110,7 @@ tasks.named<JavaCompile>("compileTestJava") {
 tasks.compileKotlin {
     dependsOn("createKotlinDirs")
     kotlinOptions {
-        jvmTarget = "18"
+        jvmTarget = "17"
     }
 }
 

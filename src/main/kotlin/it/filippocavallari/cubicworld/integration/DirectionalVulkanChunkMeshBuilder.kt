@@ -5,6 +5,7 @@ import it.filippocavallari.cubicworld.data.block.FaceDirection
 import it.filippocavallari.cubicworld.textures.TextureManager
 import it.filippocavallari.cubicworld.textures.TextureStitcher
 import it.filippocavallari.cubicworld.world.chunk.Chunk
+import it.filippocavallari.cubicworld.utils.BufferUtils.floatArrayToByteArray
 import org.joml.Vector4f
 import org.vulkanb.eng.scene.ModelData
 import java.util.*
@@ -114,10 +115,12 @@ class DirectionalVulkanChunkMeshBuilder(private val textureStitcher: TextureStit
             
             // Convert to arrays
             val posArray = meshData.positions.toFloatArray()
+            val posByteArray = floatArrayToByteArray(posArray) // Convert to ByteArray
             val texCoordsArray = meshData.textCoords.toFloatArray()
             val normalsArray = meshData.normals.toFloatArray()
-            val tangentsArray = meshData.tangents.toFloatArray()
-            val biTangentsArray = meshData.biTangents.toFloatArray()
+            // tangentsArray and biTangentsArray are no longer used in MeshData constructor directly
+            // val tangentsArray = meshData.tangents.toFloatArray() 
+            // val biTangentsArray = meshData.biTangents.toFloatArray()
             val indicesArray = meshData.indices.toIntArray()
             
             // Create material list (same for all directions)
@@ -126,10 +129,10 @@ class DirectionalVulkanChunkMeshBuilder(private val textureStitcher: TextureStit
             // Create mesh data
             val meshDataList = ArrayList<ModelData.MeshData>()
             meshDataList.add(ModelData.MeshData(
-                posArray,
+                posByteArray,     // Use ByteArray for positions
                 normalsArray,
-                tangentsArray,
-                biTangentsArray,
+                // tangentsArray,    // Removed
+                // biTangentsArray,  // Removed
                 texCoordsArray,
                 indicesArray,
                 0  // Material index

@@ -2,6 +2,7 @@ package it.filippocavallari.cubicworld.integration
 
 import it.filippocavallari.cubicworld.models.Model
 import it.filippocavallari.cubicworld.textures.TextureStitcher
+import it.filippocavallari.cubicworld.utils.BufferUtils.floatArrayToByteArray
 import org.joml.Vector4f
 import org.vulkanb.eng.scene.ModelData
 import java.util.ArrayList
@@ -37,6 +38,7 @@ object ModelConverter {
         // Convert to arrays
         val positionsArray = FloatArray(positions.size)
         positions.forEachIndexed { index, value -> positionsArray[index] = value }
+        val posByteArray = floatArrayToByteArray(positionsArray) // Convert to ByteArray
         
         val texCoordsArray = FloatArray(textCoords.size)
         textCoords.forEachIndexed { index, value -> texCoordsArray[index] = value }
@@ -69,10 +71,10 @@ object ModelConverter {
         // Create mesh data
         val meshDataList = ArrayList<ModelData.MeshData>()
         meshDataList.add(ModelData.MeshData(
-            positionsArray,
+            posByteArray,   // Use ByteArray for positions
             normalsArray,
-            tangentsArray,
-            biTangentsArray,
+            // tangentsArray, // Removed
+            // biTangentsArray, // Removed
             texCoordsArray,
             indicesArray,
             0  // Material index (using our default material)
