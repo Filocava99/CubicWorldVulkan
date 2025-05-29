@@ -20,6 +20,7 @@ import org.vulkanb.eng.scene.Entity
 import org.vulkanb.eng.scene.ModelData
 import org.vulkanb.eng.scene.Scene
 import java.nio.file.Paths
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -43,8 +44,9 @@ class VulkanIntegration {
     
     // Track loaded chunks to manage descriptor pool
     private val loadedChunks = ConcurrentHashMap<String, String>() // chunkId -> modelId
-    private var descriptorSetsUsed = 0
-    private val MAX_DESCRIPTOR_SETS = 100 // Very conservative limit
+    private val chunkLoadOrder = Collections.synchronizedList(mutableListOf<String>()) // Track order for LRU
+    private val modelRefCount = ConcurrentHashMap<String, Int>() // modelId -> reference count
+    private val MAX_LOADED_CHUNKS = 500 // Increased limit
     
     // Track loaded models to prevent duplication
     private val loadedModels = ConcurrentHashMap<String, Boolean>() // modelId -> loaded
@@ -94,7 +96,7 @@ class VulkanIntegration {
             println("Global buffer sizes:")
             println("- Vertices buffer: ${verticesSize / (1024 * 1024)} MB")
             println("- Indices buffer: ${indicesSize / (1024 * 1024)} MB")
-            println("- Max descriptor sets: $MAX_DESCRIPTOR_SETS")
+            println("- Max loaded chunks: $MAX_LOADED_CHUNKS")
         } catch (e: Exception) {
             println("Could not access buffer information: ${e.message}")
         }
@@ -253,44 +255,62 @@ class VulkanIntegration {
      * Check if we can load more chunks without exhausting resources
      */
     private fun canLoadMoreChunks(): Boolean {
-        if (descriptorSetsUsed >= MAX_DESCRIPTOR_SETS) {
-            println("WARNING: Approaching descriptor set limit ($descriptorSetsUsed/$MAX_DESCRIPTOR_SETS)")
+        val currentChunks = loadedChunks.size
+        if (currentChunks >= MAX_LOADED_CHUNKS) {
+            println("Chunk limit reached ($currentChunks/$MAX_LOADED_CHUNKS), will unload old chunks")
             return false
         }
         return true
     }
     
     /**
-     * Unload oldest chunks to make room for new ones
+     * Unload oldest chunks to make room for new ones using LRU strategy
      */
     private fun unloadOldestChunks(count: Int) {
         println("Unloading $count oldest chunks to free resources")
         
-        val chunksToRemove = loadedChunks.keys.take(count)
-        chunksToRemove.forEach { chunkId ->
-            val modelId = loadedChunks[chunkId]
-            if (modelId != null) {
-                // Find and remove entity
-                val entities = vulkanScene.getEntitiesByModelId(modelId)
-                val entity = entities?.find { it.getId() == chunkId }
-                if (entity != null) {
-                    vulkanScene.removeEntity(entity)
-                    descriptorSetsUsed--
-                }
-                
-                // Remove from tracking
-                loadedChunks.remove(chunkId)
-                chunkMeshCache.remove(chunkId)
-                
-                // Check if any other chunks are using this model
-                val modelStillInUse = loadedChunks.values.contains(modelId)
-                if (!modelStillInUse) {
-                    loadedModels.remove(modelId)
-                }
-            }
+        val chunksToRemove = synchronized(chunkLoadOrder) {
+            val toRemove = chunkLoadOrder.take(minOf(count, chunkLoadOrder.size))
+            chunkLoadOrder.removeAll(toRemove)
+            toRemove
         }
         
-        println("Freed $count descriptor sets, now using $descriptorSetsUsed/$MAX_DESCRIPTOR_SETS")
+        chunksToRemove.forEach { chunkId ->
+            removeChunkMeshInternal(chunkId)
+        }
+        
+        println("Freed resources from ${chunksToRemove.size} chunks, now have ${loadedChunks.size} loaded chunks")
+    }
+    
+    /**
+     * Internal method to remove a chunk mesh
+     */
+    private fun removeChunkMeshInternal(chunkId: String) {
+        val modelId = loadedChunks[chunkId] ?: return
+        
+        // Find and remove entity from scene
+        val modelData = chunkMeshCache[chunkId]
+        val entities = if (modelData != null) vulkanScene.getEntitiesByModelId(modelData.modelId) else null
+        val entity = entities?.find { it.getId() == chunkId }
+        
+        if (entity != null) {
+            vulkanScene.removeEntity(entity)
+            println("Removed entity for chunk $chunkId")
+        }
+        
+        // Update reference count
+        val refCount = modelRefCount[modelId] ?: 1
+        if (refCount <= 1) {
+            modelRefCount.remove(modelId)
+            loadedModels.remove(modelId)
+            println("Model $modelId no longer in use, marked for cleanup")
+        } else {
+            modelRefCount[modelId] = refCount - 1
+        }
+        
+        // Remove from tracking
+        loadedChunks.remove(chunkId)
+        chunkMeshCache.remove(chunkId)
     }
     
     /**
@@ -306,8 +326,8 @@ class VulkanIntegration {
         
         // Check if we can load more chunks
         if (!canLoadMoreChunks()) {
-            println("Descriptor set limit reached, unloading old chunks")
-            unloadOldestChunks(10) // Unload 10 old chunks
+            println("Chunk limit reached, unloading old chunks")
+            unloadOldestChunks(50) // Unload more chunks at once for efficiency
         }
         
         // Generate a mesh from the chunk data
@@ -361,17 +381,19 @@ class VulkanIntegration {
                     loadedModels[modelData.modelId] = true
                     
                     // Track descriptor set usage
-                    descriptorSetsUsed++
                     loadedChunks[chunkId] = modelData.modelId
+                    synchronized(chunkLoadOrder) {
+                        chunkLoadOrder.add(chunkId)
+                    }
+                    modelRefCount[modelData.modelId] = 1
                     
-                    println("Descriptor sets in use: $descriptorSetsUsed/$MAX_DESCRIPTOR_SETS")
+                    println("Chunks loaded: ${loadedChunks.size}/$MAX_LOADED_CHUNKS")
                 } catch (e: Exception) {
                     println("ERROR: Failed to load chunk model: ${e.message}")
                     // Check for descriptor pool exhaustion
                     if (e.message?.contains("-1000069000") == true || 
                         e.message?.contains("descriptor set") == true) {
                         println("Descriptor pool exhausted!")
-                        descriptorSetsUsed-- // Rollback counter
                         throw RuntimeException("Descriptor pool exhausted", e)
                     }
                     throw e
@@ -384,6 +406,11 @@ class VulkanIntegration {
             println("Model ${modelData.modelId} already loaded to renderer, reusing")
             // Still track this chunk as using the model
             loadedChunks[chunkId] = modelData.modelId
+            synchronized(chunkLoadOrder) {
+                chunkLoadOrder.add(chunkId)
+            }
+            // Increment reference count
+            modelRefCount[modelData.modelId] = (modelRefCount[modelData.modelId] ?: 0) + 1
         }
         
         // Create entity for this chunk at origin since mesh vertices are already in world coordinates
@@ -445,34 +472,13 @@ class VulkanIntegration {
     fun removeChunkMesh(entityId: String) {
         val chunkId = entityId
         
-        // Get the model ID for this chunk
-        val modelId = loadedChunks[chunkId]
-        if (modelId == null) {
-            println("Chunk $chunkId not found in loaded chunks")
-            return
+        // Remove from load order tracking
+        synchronized(chunkLoadOrder) {
+            chunkLoadOrder.remove(chunkId)
         }
         
-        // Find entity in the scene
-        val modelData = chunkMeshCache[chunkId]
-        val entities = if (modelData != null) vulkanScene.getEntitiesByModelId(modelData.modelId) else null
-        val entity = entities?.find { it.getId() == chunkId }
-        
-        if (entity != null) {
-            vulkanScene.removeEntity(entity)
-            descriptorSetsUsed--
-            println("Removed chunk $chunkId, descriptor sets in use: $descriptorSetsUsed/$MAX_DESCRIPTOR_SETS")
-        }
-        
-        // Remove from cache and tracking
-        chunkMeshCache.remove(chunkId)
-        loadedChunks.remove(chunkId)
-        
-        // Check if any other chunks are using this model
-        val modelStillInUse = loadedChunks.values.contains(modelId)
-        if (!modelStillInUse) {
-            loadedModels.remove(modelId)
-            println("Model $modelId no longer in use, removed from loaded models")
-        }
+        // Use internal removal method
+        removeChunkMeshInternal(chunkId)
     }
     
     /**
@@ -553,7 +559,8 @@ class VulkanIntegration {
         chunkMeshCache.clear()
         loadedChunks.clear()
         loadedModels.clear()
-        descriptorSetsUsed = 0
+        modelRefCount.clear()
+        chunkLoadOrder.clear()
         
         // Force recreation of the next world update cycle
         println("Chunk rendering system reset complete")
