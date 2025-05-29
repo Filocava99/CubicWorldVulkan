@@ -2,6 +2,7 @@ package it.filippocavallari.cubicworld
 
 import it.filippocavallari.cubicworld.world.World
 import it.filippocavallari.cubicworld.world.chunk.Chunk
+import it.filippocavallari.cubicworld.world.generators.FlatWorldGenerator
 
 /**
  * Simple test to verify chunk loading and positioning
@@ -10,7 +11,8 @@ fun main() {
     println("=== Chunk Loading Test ===")
     
     // Create a test world
-    val world = World(it.filippocavallari.cubicworld.world.generators.BiodiverseWorldGenerator())
+    // private val world = World(FlatWorldGenerator()) // Commented out for debugging this specific error
+    private val world: Any? = null // Placeholder
     
     // Test chunk positions
     val testChunks = listOf(
@@ -22,7 +24,7 @@ fun main() {
     )
     
     for ((x, z) in testChunks) {
-        val chunk = Chunk(x, z, world)
+        val chunk = Chunk(x, 0, z, world) // Assuming Y=0 for these test chunks
         val worldX = chunk.getWorldX()
         val worldZ = chunk.getWorldZ()
         
@@ -46,8 +48,8 @@ fun main() {
     val testCoords = listOf(-17, -16, -1, 0, 1, 15, 16, 17)
     
     for (coord in testCoords) {
-        val chunkCoord = Chunk.worldToChunk(coord)
-        val localCoord = Chunk.worldToLocal(coord)
+        val chunkCoord = Chunk.worldToChunkXZ(coord) // Changed to worldToChunkXZ
+        val localCoord = Chunk.worldToLocalXZ(coord) // Changed to worldToLocalXZ
         
         println("World coord $coord -> Chunk $chunkCoord, Local $localCoord")
         

@@ -153,7 +153,9 @@ fun main() {
     for (x in 0 until Chunk.SIZE * 2) {
         val chunkX = if (x < Chunk.SIZE) 0 else 1
         val localX = x % Chunk.SIZE
-        val chunk = world.getChunk(chunkX, 0)!!
+        // Assuming the '0' in world.getChunk(chunkX, 0) was intended for the Y-coordinate of the chunk.
+        // The Z-coordinate of the chunk for this test (where it says "chunks (0,0) and (1,0)") is 0.
+        val chunk = world.getChunk(chunkX, 0, 0)!! 
         
         // Find surface height
         var height = 0
