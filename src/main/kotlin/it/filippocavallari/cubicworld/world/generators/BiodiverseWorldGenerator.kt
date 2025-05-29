@@ -381,8 +381,8 @@ class BiodiverseWorldGenerator(
         // Generate 3D cave noise for the entire chunk with increased height range
         for (x in 0 until Chunk.SIZE) {
             for (z in 0 until Chunk.SIZE) {
-                // Caves generate from bedrock level up to 120 (increased from 60)
-                for (y in 5 until 120) { 
+                // Caves generate from bedrock level up to 180 (increased to match terrain heights)
+                for (y in 5 until 180) { 
                     // Calculate absolute world coordinates
                     val worldX = (chunkX * Chunk.SIZE) + x
                     val worldZ = (chunkZ * Chunk.SIZE) + z
@@ -453,13 +453,13 @@ class BiodiverseWorldGenerator(
     companion object {
         // World generation constants
         const val CONTINENT_MEAN_HEIGHT = 64
-        const val CONTINENT_HEIGHT_SCALE = 35  // Increased for more varied terrain
+        const val CONTINENT_HEIGHT_SCALE = 45  // Increased for more varied terrain with taller peaks
         
         const val BIOME_SCALE = 0.005f
         const val BIOME_BORDER_SCALE = 0.01f
         const val BIOME_BLEND_AREA = 16
         
         const val MIN_HEIGHT = 1
-        const val MAX_HEIGHT = 180  // Significantly increased to allow full terrain generation
+        const val MAX_HEIGHT = 240  // Increased to allow tall mountain peaks while leaving room for decorations
     }
 }

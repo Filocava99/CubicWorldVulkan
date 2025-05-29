@@ -4,6 +4,7 @@ import it.filippocavallari.cubicworld.data.block.BlockType
 import it.filippocavallari.cubicworld.world.chunk.Chunk
 import it.filippocavallari.cubicworld.world.generators.noise.NoiseFactory
 import kotlin.math.max
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sqrt
@@ -17,7 +18,7 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
     // Common terrain constants
     companion object {
         const val SEA_LEVEL = 62
-        const val MAX_HEIGHT = 180  // Updated to match world generator limits
+        const val MAX_HEIGHT = 240  // Increased to match world generator limits and allow tall mountains
         const val MIN_HEIGHT = 1
         const val BEDROCK_LEVEL = 5
     }
@@ -52,7 +53,9 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
                 }
                 
                 // Generate stone layer
-                for (y in BEDROCK_LEVEL + 1 until height - 4) {
+                // Ensure stone stops below the surface to prevent exposure
+                val stoneTop = max(BEDROCK_LEVEL + 1, height - 5)
+                for (y in BEDROCK_LEVEL + 1 until stoneTop) {
                     chunk.setBlock(x, y, z, BlockType.STONE.id)
                 }
                 
@@ -82,12 +85,17 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
      * Default implementation adds a dirt layer with grass on top.
      */
     protected open fun generateSurface(chunk: Chunk, x: Int, z: Int, height: Int) {
-        // Default is a 3-block dirt layer with grass on top
-        for (y in height - 4 until height) {
+        // Ensure we always have at least some dirt coverage to prevent exposed stone
+        val dirtDepth = 4
+        val startY = max(BEDROCK_LEVEL + 1, height - dirtDepth)
+        
+        // Fill from startY to height with dirt
+        for (y in startY until height) {
             chunk.setBlock(x, y, z, BlockType.DIRT.id)
         }
         
-        // Top layer - grass if above sea level, otherwise dirt or sand
+        // Always set the surface block (at height position)
+        // Top layer - grass if above sea level, otherwise dirt
         if (height > SEA_LEVEL) {
             chunk.setBlock(x, height, z, BlockType.GRASS.id)
         } else {
@@ -109,8 +117,8 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
     ) {
         // Define ore parameters - type, frequency, min/max height, vein size
         val oreTypes = arrayOf(
-            OreType(BlockType.COAL_ORE.id, 20, 5, 160, 8, seed),  // Increased max height
-            OreType(BlockType.IRON_ORE.id, 15, 5, 128, 6, seed),  // Increased max height
+            OreType(BlockType.COAL_ORE.id, 20, 5, 200, 8, seed),  // Increased max height
+            OreType(BlockType.IRON_ORE.id, 15, 5, 160, 6, seed),  // Increased max height
             OreType(BlockType.GOLD_ORE.id, 8, 5, 64, 6, seed),
             OreType(BlockType.DIAMOND_ORE.id, 3, 5, 32, 4, seed),
             OreType(BlockType.REDSTONE_ORE.id, 10, 5, 64, 5, seed), // Increased max height
@@ -202,7 +210,7 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
         for (x in startX until endX) {
             for (z in startZ until endZ) {
                 // Get cave ceiling based on reasonable underground depth
-                val caveCeiling = 120  // Increased to allow caves throughout terrain
+                val caveCeiling = 180  // Increased to allow caves throughout taller terrain
                 
                 for (y in BEDROCK_LEVEL + 2 until caveCeiling) {
                     // Skip if already air

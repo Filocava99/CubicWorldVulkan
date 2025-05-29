@@ -58,10 +58,12 @@ class MountainBiomeGenerator : AbstractBiomeGenerator() {
         )
         
         // Apply exponential function to create sharper peaks
-        val peakFactor = mountainNoise.pow(2.5f) * 70
+        // Increased multiplier from 70 to 100 for taller mountains
+        val peakFactor = mountainNoise.pow(2.5f) * 100
         
         // Apply extra height to base terrain
-        return min(baseHeight + peakFactor.toInt(), MAX_HEIGHT - 5)
+        // Removed the -5 buffer to allow mountains to reach closer to max height
+        return min(baseHeight + peakFactor.toInt(), MAX_HEIGHT - 2)
     }
     
     /**
@@ -85,7 +87,7 @@ class MountainBiomeGenerator : AbstractBiomeGenerator() {
         for (x in startX until endX) {
             for (z in startZ until endZ) {
                 // Higher cave ceiling in mountains
-                val caveCeiling = 120
+                val caveCeiling = 180
                 
                 for (y in BEDROCK_LEVEL + 2 until caveCeiling) {
                     // Skip if already air
@@ -207,6 +209,6 @@ class MountainBiomeGenerator : AbstractBiomeGenerator() {
     
     companion object {
         // Snow line - above this elevation, stone instead of grass
-        private const val SNOW_LINE = 110
+        private const val SNOW_LINE = 140
     }
 }
