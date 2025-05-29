@@ -18,33 +18,39 @@ class FlatWorldGenerator : WorldGenerator {
     }
     
     override fun generateChunk(chunk: Chunk) {
-        println("Generating flat world chunk at (${chunk.position.x}, ${chunk.position.y})")
-        
-        // Fill the chunk with the appropriate blocks
+        println("Generating flat world chunk at (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z})")
+        val worldYOffset = chunk.position.y * Chunk.HEIGHT
+
         for (x in 0 until Chunk.SIZE) {
             for (z in 0 until Chunk.SIZE) {
-                // Add bedrock at the bottom
-                chunk.setBlock(x, BEDROCK_LEVEL, z, BlockType.BEDROCK.id)
-                
-                // Fill with stone up to stone level
-                for (y in BEDROCK_LEVEL + 1..STONE_LEVEL) {
-                    chunk.setBlock(x, y, z, BlockType.STONE.id)
+                for (localY in 0 until Chunk.HEIGHT) {
+                    val currentWorldY = worldYOffset + localY
+                    var blockId = BlockType.AIR.id // Default to air
+
+                    if (currentWorldY == BEDROCK_LEVEL) {
+                        blockId = BlockType.BEDROCK.id
+                    } else if (currentWorldY > BEDROCK_LEVEL && currentWorldY <= STONE_LEVEL) {
+                        blockId = BlockType.STONE.id
+                    } else if (currentWorldY > STONE_LEVEL && currentWorldY <= DIRT_LEVEL) {
+                        blockId = BlockType.DIRT.id
+                    } else if (currentWorldY > DIRT_LEVEL && currentWorldY <= GRASS_LEVEL) {
+                        // Place grass only at the exact GRASS_LEVEL
+                        if (currentWorldY == GRASS_LEVEL) {
+                             blockId = BlockType.GRASS.id
+                        }
+                        // Other Y levels in this range will remain air unless specified otherwise
+                    }
+                    // Any other currentWorldY values will result in BlockType.AIR.id as set by default
+
+                    chunk.setBlock(x, localY, z, blockId)
                 }
-                
-                // Add dirt layer
-                for (y in STONE_LEVEL + 1..DIRT_LEVEL) {
-                    chunk.setBlock(x, y, z, BlockType.DIRT.id)
+                // Reference markers (only if chunk.position.y == 0 for simplicity)
+                if (chunk.position.y == 0) {
+                    addReferenceMarkers(chunk, x, z)
                 }
-                
-                // Add grass on top
-                chunk.setBlock(x, GRASS_LEVEL, z, BlockType.GRASS.id)
-                
-                // Add reference markers for orientation (only at chunk borders)
-                addReferenceMarkers(chunk, x, z)
             }
         }
-        
-        println("Flat world chunk generation complete for (${chunk.position.x}, ${chunk.position.y})")
+        println("Flat world chunk generation complete for (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z})")
     }
     
     /**
@@ -53,15 +59,17 @@ class FlatWorldGenerator : WorldGenerator {
     private fun addReferenceMarkers(chunk: Chunk, x: Int, z: Int) {
         // Create markers only at chunk borders for visual reference
         if (x == 0 || x == Chunk.SIZE - 1 || z == 0 || z == Chunk.SIZE - 1) {
-            // Add a bedrock block at the borders above grass level
-            chunk.setBlock(x, GRASS_LEVEL + 1, z, BlockType.BEDROCK.id)
+            // Add a bedrock block at the borders above grass level, if space allows
+            if (GRASS_LEVEL + 1 < Chunk.HEIGHT) {
+                chunk.setBlock(x, GRASS_LEVEL + 1, z, BlockType.BEDROCK.id)
+            }
         }
         
         // Create a small pillar at chunk center for orientation
         if (x == Chunk.SIZE / 2 && z == Chunk.SIZE / 2) {
-            // Create a 3-block tall pillar at the center
-            for (y in GRASS_LEVEL + 1..GRASS_LEVEL + 3) {
-                chunk.setBlock(x, y, z, BlockType.BEDROCK.id)
+            // Create a 1-block tall marker at the center, if space allows
+            if (GRASS_LEVEL + 1 < Chunk.HEIGHT) {
+                chunk.setBlock(x, GRASS_LEVEL + 1, z, BlockType.BEDROCK.id)
             }
         }
     }

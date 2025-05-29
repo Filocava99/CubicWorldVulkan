@@ -122,12 +122,13 @@ class CubicWorldEngine : IAppLogic {
             println("Initializing enhanced 4x4 dynamic chunk loading system")
             println("This system will load chunks in a circular pattern and dynamically adjust as you move")
             
-            // Initialize the chunk manager at spawn point (0, 0)
-            chunkManager.initialize(0, 0)
+            // Initialize the chunk manager at spawn point (0, 0, 0)
+            chunkManager.initialize(0, 0, 0)
             
             println("\n=== ENHANCED CHUNK LOADING SYSTEM ===\n")
             println("Features:")
-            println("  ✓ 4x4 chunk grid (${WORLD_RENDER_DISTANCE * 2 + 1}x${WORLD_RENDER_DISTANCE * 2 + 1} total area)")
+            val effectiveRenderDistY = WORLD_RENDER_DISTANCE // Assuming Y render distance matches XZ for this print
+            println("  ✓ ${WORLD_RENDER_DISTANCE * 2 + 1}x${effectiveRenderDistY * 2 + 1}x${WORLD_RENDER_DISTANCE * 2 + 1} chunk grid")
             println("  ✓ Circular loading pattern (center-out priority)")
             println("  ✓ Dynamic loading when approaching chunk borders")
             println("  ✓ Automatic unloading of distant chunks")
@@ -147,17 +148,17 @@ class CubicWorldEngine : IAppLogic {
     /**
      * Create a chunk at the specified coordinates using the terrain generator
      */
-    private fun createBasicChunkAt(x: Int, z: Int) {
+    private fun createBasicChunkAt(x: Int, y: Int, z: Int) {
         try {
-            println("Creating chunk using biodiverse generator at ($x, $z)")
-            println("  Chunk coordinate: ($x, $z)")
-            println("  World position: (${x * Chunk.SIZE}, ${z * Chunk.SIZE}) to (${x * Chunk.SIZE + 15}, ${z * Chunk.SIZE + 15})")
+            println("Creating chunk using biodiverse generator at ($x, $y, $z)")
+            println("  Chunk coordinate: ($x, $y, $z)")
+            println("  World position: (${x * Chunk.SIZE}, ${y * Chunk.HEIGHT}, ${z * Chunk.SIZE}) to (${x * Chunk.SIZE + Chunk.SIZE -1}, ${y * Chunk.HEIGHT + Chunk.HEIGHT -1}, ${z * Chunk.SIZE + Chunk.SIZE -1})")
             
             // Load the chunk synchronously using the world generator
-            val chunk = gameWorld.loadChunkSynchronously(x, z)
+            val chunk = gameWorld.loadChunkSynchronously(x, y, z)
             
             // Validate chunk coordinates
-            validateChunkCoordinates(chunk, x, z)
+            validateChunkCoordinates(chunk, x, y, z)
             
             // Verify the chunk was created properly
             var blockCount = 0
@@ -179,9 +180,9 @@ class CubicWorldEngine : IAppLogic {
             }
             
             if (blockCount == 0) {
-                println("ERROR: Chunk at ($x, $z) is completely empty!")
+                println("ERROR: Chunk at ($x, $y, $z) is completely empty!")
             } else {
-                println("Chunk at ($x, $z) terrain analysis:")
+                println("Chunk at ($x, $y, $z) terrain analysis:")
                 println("  Total blocks: $blockCount")
                 println("  Height range: $minHeight to $maxHeight")
                 println("  Surface area coverage: ${String.format("%.1f", (blockCount.toFloat() / (Chunk.SIZE * Chunk.SIZE)) * 100)}%")
@@ -190,13 +191,13 @@ class CubicWorldEngine : IAppLogic {
             // Create the mesh
             val entityId = vulkanIntegration.createChunkMesh(chunk)
             if (entityId.isEmpty()) {
-                println("WARNING: Failed to create mesh for chunk at ($x, $z) - mesh might be empty or failed")
+                println("WARNING: Failed to create mesh for chunk at ($x, $y, $z) - mesh might be empty or failed")
             } else {
-                println("SUCCESS: Created mesh entity '$entityId' for chunk at ($x, $z)")
+                println("SUCCESS: Created mesh entity '$entityId' for chunk at ($x, $y, $z)")
             }
             
         } catch (e: Exception) {
-            println("ERROR: Failed to create chunk at ($x, $z): ${e.message}")
+            println("ERROR: Failed to create chunk at ($x, $y, $z): ${e.message}")
             e.printStackTrace()
         }
     }
@@ -204,24 +205,26 @@ class CubicWorldEngine : IAppLogic {
     /**
      * Validate that chunk coordinates are correctly set
      */
-    private fun validateChunkCoordinates(chunk: Chunk, expectedX: Int, expectedZ: Int) {
-        if (chunk.position.x != expectedX || chunk.position.y != expectedZ) {
+    private fun validateChunkCoordinates(chunk: Chunk, expectedX: Int, expectedY: Int, expectedZ: Int) {
+        if (chunk.position.x != expectedX || chunk.position.y != expectedY || chunk.position.z != expectedZ) {
             println("ERROR: Chunk coordinate mismatch!")
-            println("  Expected: ($expectedX, $expectedZ)")
-            println("  Actual: (${chunk.position.x}, ${chunk.position.y})")
+            println("  Expected: ($expectedX, $expectedY, $expectedZ)")
+            println("  Actual: (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z})")
         }
         
         val expectedWorldX = expectedX * Chunk.SIZE
+        val expectedWorldY = expectedY * Chunk.HEIGHT
         val expectedWorldZ = expectedZ * Chunk.SIZE
         val actualWorldX = chunk.getWorldX()
+        val actualWorldY = chunk.getWorldY()
         val actualWorldZ = chunk.getWorldZ()
         
-        if (actualWorldX != expectedWorldX || actualWorldZ != expectedWorldZ) {
+        if (actualWorldX != expectedWorldX || actualWorldY != expectedWorldY || actualWorldZ != expectedWorldZ) {
             println("ERROR: World coordinate calculation error!")
-            println("  Expected world position: ($expectedWorldX, $expectedWorldZ)")
-            println("  Actual world position: ($actualWorldX, $actualWorldZ)")
+            println("  Expected world position: ($expectedWorldX, $expectedWorldY, $expectedWorldZ)")
+            println("  Actual world position: ($actualWorldX, $actualWorldY, $actualWorldZ)")
         } else {
-            println("  Coordinates validated: chunk ($expectedX, $expectedZ) -> world ($actualWorldX, $actualWorldZ)")
+            println("  Coordinates validated: chunk ($expectedX, $expectedY, $expectedZ) -> world ($actualWorldX, $actualWorldY, $actualWorldZ)")
         }
     }
     
@@ -230,8 +233,8 @@ class CubicWorldEngine : IAppLogic {
      * This method is retained for compatibility but is now redundant
      */
     private fun createAndLoadTestChunk() {
-        // Delegate to createBasicChunkAt to avoid code duplication
-        createBasicChunkAt(0, 0)
+        // Delegate to createBasicChunkAt to avoid code duplication, assuming Y=0 for this test
+        createBasicChunkAt(0, 0, 0)
     }
     
     /**
@@ -245,10 +248,10 @@ class CubicWorldEngine : IAppLogic {
         for (x in 0..1) {
             for (z in 0..1) {
                 // Skip the origin since we already loaded it
-                if (x == 0 && z == 0) continue
+                if (x == 0 && z == 0) continue // Assuming Y=0 for this specific loop's context
                 
-                // Use synchronous loading for initial chunks
-                val chunk = Chunk(x, z, gameWorld)
+                // Use synchronous loading for initial chunks, assuming Y=0
+                val chunk = Chunk(x, 0, z, gameWorld)
                 
                 // Fill with some basic test blocks
                 for (bx in 0 until Chunk.SIZE) {
@@ -404,7 +407,7 @@ class CubicWorldEngine : IAppLogic {
         
         // Update chunk manager with current player position for dynamic loading
         val camera = scene.camera
-        chunkManager.updatePlayerPosition(camera.position.x, camera.position.z)
+        chunkManager.updatePlayerPosition(camera.position.x, camera.position.y, camera.position.z)
         
         // Update directional chunk visibility based on camera direction
         val cameraForward = Vector3f()
@@ -413,9 +416,10 @@ class CubicWorldEngine : IAppLogic {
         
         // Optional: Print debug info periodically (every 5 seconds)
         if (System.currentTimeMillis() % 5000 < 50) { // Roughly every 5 seconds
-            val playerChunkX = Chunk.worldToChunk(camera.position.x.toInt())
-            val playerChunkZ = Chunk.worldToChunk(camera.position.z.toInt())
-            println("Player at world (${camera.position.x.toInt()}, ${camera.position.z.toInt()}) = chunk ($playerChunkX, $playerChunkZ). ${chunkManager.getLoadedChunkInfo()}")
+            val playerChunkX = Chunk.worldToChunkXZ(camera.position.x.toInt())
+            val playerChunkY = Chunk.worldToChunkY(camera.position.y.toInt())
+            val playerChunkZ = Chunk.worldToChunkXZ(camera.position.z.toInt())
+            println("Player at world (${camera.position.x.toInt()}, ${camera.position.y.toInt()}, ${camera.position.z.toInt()}) = chunk ($playerChunkX, $playerChunkY, $playerChunkZ). ${chunkManager.getLoadedChunkInfo()}")
         }
     }
     

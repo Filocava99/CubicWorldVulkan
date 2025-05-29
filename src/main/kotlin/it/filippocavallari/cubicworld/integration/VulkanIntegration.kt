@@ -381,7 +381,7 @@ class VulkanIntegration {
      * Create directional meshes for a chunk (6 meshes, one per face direction)
      */
     private fun createDirectionalChunkMesh(chunk: Chunk): String {
-        println("Building directional meshes for chunk at (${chunk.position.x}, ${chunk.position.y})")
+        println("Building directional meshes for chunk at (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z})")
         
         // Check if we can load more chunks
         if (!canLoadMoreChunks()) {
@@ -482,7 +482,7 @@ class VulkanIntegration {
      * Create a single mesh for a chunk (original implementation)
      */
     private fun createSingleChunkMesh(chunk: Chunk): String {
-        println("Building mesh for chunk at (${chunk.position.x}, ${chunk.position.y})")
+        println("Building mesh for chunk at (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z})")
         
         // Check if we can load more chunks
         if (!canLoadMoreChunks()) {
@@ -649,8 +649,8 @@ class VulkanIntegration {
      */
     private fun getChunkId(chunk: Chunk): String {
         // Use chunk position from the chunk object, not the world position
-        // position.x and position.y are the chunk coordinates
-        return "chunk_${chunk.position.x}_${chunk.position.y}"
+        // position.x, position.y, and position.z are the chunk coordinates
+        return "chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}"
     }
     
     /**
@@ -810,19 +810,22 @@ class VulkanIntegration {
         for ((chunkId, directionalEntities) in directionalLoadedChunks) {
             // Parse chunk position from ID
             val parts = chunkId.split("_")
-            if (parts.size >= 3) {
+            if (parts.size >= 4) { // "chunk", "x", "y", "z"
                 val chunkX = parts[1].toIntOrNull() ?: continue
-                val chunkZ = parts[2].toIntOrNull() ?: continue
+                val chunkY = parts[2].toIntOrNull() ?: continue // New: parse Y coordinate
+                val chunkZ = parts[3].toIntOrNull() ?: continue // Z is now parts[3]
                 
                 // Calculate chunk center position
                 val chunkCenterX = chunkX * Chunk.SIZE + Chunk.SIZE / 2.0f
+                // Calculate actual world Y of the bottom of the chunk
+                val chunkWorldY = chunkY * Chunk.HEIGHT 
+                val chunkCenterY = chunkWorldY + (Chunk.HEIGHT / 2.0f)
                 val chunkCenterZ = chunkZ * Chunk.SIZE + Chunk.SIZE / 2.0f
-                val chunkCenterY = cameraPosition.y
                 
                 // Vector from camera to chunk center
                 val toChunk = Vector3f(
                     chunkCenterX - cameraPosition.x,
-                    chunkCenterY - cameraPosition.y,
+                    chunkCenterY - cameraPosition.y, // Use calculated chunkCenterY
                     chunkCenterZ - cameraPosition.z
                 )
                 

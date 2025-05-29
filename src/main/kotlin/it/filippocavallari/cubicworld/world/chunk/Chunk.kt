@@ -3,14 +3,15 @@ package it.filippocavallari.cubicworld.world.chunk
 import it.filippocavallari.cubicworld.data.block.BlockType
 import it.filippocavallari.cubicworld.world.World
 import org.joml.Vector2i
+import org.joml.Vector3i
 
 /**
- * Represents a chunk of the world, containing a 16x256x16 grid of blocks.
+ * Represents a chunk of the world, containing a 16x16x16 grid of blocks.
  */
-class Chunk(x: Int, z: Int, val world: World? = null) {
+class Chunk(x: Int, y: Int, z: Int, val world: World? = null) {
     // Position of this chunk in the world (in chunk coordinates)
-    val position: Vector2i = Vector2i(x, z)
-    
+    val position: Vector3i = Vector3i(x, y, z)
+
     // Block data storage (stored as block IDs)
     private val blocks: Array<Array<ShortArray>> = Array(SIZE) {
         Array(HEIGHT) {
@@ -78,7 +79,11 @@ class Chunk(x: Int, z: Int, val world: World? = null) {
      * Get the world Z coordinate of the start of this chunk
      */
     fun getWorldZ(): Int {
-        return position.y * SIZE
+        return position.z * SIZE
+    }
+
+    fun getWorldY(): Int {
+        return position.y * HEIGHT
     }
     
     /**
@@ -131,20 +136,28 @@ class Chunk(x: Int, z: Int, val world: World? = null) {
     companion object {
         // Chunk dimensions
         const val SIZE = 16
-        const val HEIGHT = 256
+        const val HEIGHT = 16
         
         /**
-         * Convert world coordinates to local chunk coordinates
+         * Convert world coordinates to local chunk coordinates for X and Z axes
          */
-        fun worldToLocal(worldCoord: Int): Int {
+        fun worldToLocalXZ(worldCoord: Int): Int {
             // Handle negative coordinates correctly
             return ((worldCoord % SIZE) + SIZE) % SIZE
         }
+
+        /**
+         * Convert world coordinates to local chunk coordinates for Y axis
+         */
+        fun worldToLocalY(worldCoord: Int): Int {
+            // Handle negative coordinates correctly
+            return ((worldCoord % HEIGHT) + HEIGHT) % HEIGHT
+        }
         
         /**
-         * Convert world coordinates to chunk coordinates
+         * Convert world coordinates to chunk coordinates for X and Z axes
          */
-        fun worldToChunk(worldCoord: Int): Int {
+        fun worldToChunkXZ(worldCoord: Int): Int {
             // Handle negative coordinates correctly
             // For negative coordinates, we need to ensure proper flooring behavior
             return if (worldCoord < 0) {
@@ -155,6 +168,23 @@ class Chunk(x: Int, z: Int, val world: World? = null) {
                 // Example: worldCoord = 17, SIZE = 16
                 // Should return 1 (chunk 1 contains blocks 16 to 31)
                 worldCoord / SIZE
+            }
+        }
+
+        /**
+         * Convert world coordinates to chunk coordinates for Y axis
+         */
+        fun worldToChunkY(worldCoord: Int): Int {
+            // Handle negative coordinates correctly
+            // For negative coordinates, we need to ensure proper flooring behavior
+            return if (worldCoord < 0) {
+                // Example: worldCoord = -17, HEIGHT = 16
+                // Should return -2 (chunk -2 contains blocks -32 to -17)
+                ((worldCoord + 1) / HEIGHT) - 1
+            } else {
+                // Example: worldCoord = 17, HEIGHT = 16
+                // Should return 1 (chunk 1 contains blocks 16 to 31)
+                worldCoord / HEIGHT
             }
         }
     }

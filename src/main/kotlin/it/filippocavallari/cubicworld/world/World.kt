@@ -22,11 +22,11 @@ class World(
     val modelsPath: String = "src/main/resources/models"
 ) {
     // Map of loaded chunks
-    private val chunksMap: MutableMap<Vector2i, Chunk> = ConcurrentHashMap()
+    private val chunksMap: MutableMap<Vector3i, Chunk> = ConcurrentHashMap()
     
     // Chunk generation thread pool
     private val chunkGenerationExecutor: ExecutorService = Executors.newFixedThreadPool(2)
-    private val chunkGenerationTasks: MutableMap<Vector2i, Future<*>> = ConcurrentHashMap()
+    private val chunkGenerationTasks: MutableMap<Vector3i, Future<*>> = ConcurrentHashMap()
     
     // Chunk event listeners
     private val chunkListeners: MutableList<ChunkListener> = ArrayList()
@@ -36,14 +36,14 @@ class World(
      * This is used during startup to ensure at least one chunk is fully loaded
      * before rendering begins
      */
-    fun loadChunkSynchronously(x: Int, z: Int): Chunk {
-        val position = Vector2i(x, z)
+    fun loadChunkSynchronously(x: Int, y: Int, z: Int): Chunk {
+        val position = Vector3i(x, y, z)
         
         // Check if chunk is already loaded
         chunksMap[position]?.let { return it }
         
         // Create a new chunk
-        val chunk = Chunk(x, z, this)
+        val chunk = Chunk(x, y, z, this)
         chunksMap[position] = chunk
         
         // Generate the chunk synchronously
@@ -55,7 +55,7 @@ class World(
                 listener.onChunkLoaded(chunk)
             }
         } catch (e: Exception) {
-            System.err.println("Error generating chunk at $x, $z: ${e.message}")
+            System.err.println("Error generating chunk at $x, $y, $z: ${e.message}")
             e.printStackTrace()
         }
         
@@ -65,14 +65,14 @@ class World(
     /**
      * Load a chunk at the specified position
      */
-    fun loadChunk(x: Int, z: Int): Chunk {
-        val position = Vector2i(x, z)
+    fun loadChunk(x: Int, y: Int, z: Int): Chunk {
+        val position = Vector3i(x, y, z)
         
         // Check if chunk is already loaded
         chunksMap[position]?.let { return it }
         
         // Create a new chunk
-        val chunk = Chunk(x, z, this)
+        val chunk = Chunk(x, y, z, this)
         chunksMap[position] = chunk
         
         // Generate the chunk in a separate thread
@@ -85,7 +85,7 @@ class World(
                     listener.onChunkLoaded(chunk)
                 }
             } catch (e: Exception) {
-                System.err.println("Error generating chunk at $x, $z: ${e.message}")
+                System.err.println("Error generating chunk at $x, $y, $z: ${e.message}")
                 e.printStackTrace()
             } finally {
                 chunkGenerationTasks.remove(position)
@@ -114,8 +114,8 @@ class World(
     /**
      * Unload a chunk at the specified position
      */
-    fun unloadChunk(x: Int, z: Int) {
-        val position = Vector2i(x, z)
+    fun unloadChunk(x: Int, y: Int, z: Int) {
+        val position = Vector3i(x, y, z)
         
         // Cancel generation task if in progress
         val task = chunkGenerationTasks.remove(position)
@@ -131,41 +131,41 @@ class World(
             }
         }
         
-        println("Unloaded chunk at ($x, $z)")
+        println("Unloaded chunk at ($x, $y, $z)")
     }
     
     /**
      * Check if a chunk is loaded at the specified position
      */
-    fun isChunkLoaded(x: Int, z: Int): Boolean {
-        return chunksMap.containsKey(Vector2i(x, z))
+    fun isChunkLoaded(x: Int, y: Int, z: Int): Boolean {
+        return chunksMap.containsKey(Vector3i(x, y, z))
     }
     
     /**
      * Get a chunk at the specified position
      */
-    fun getChunk(x: Int, z: Int): Chunk? {
-        return chunksMap[Vector2i(x, z)]
+    fun getChunk(x: Int, y: Int, z: Int): Chunk? {
+        return chunksMap[Vector3i(x, y, z)]
     }
     
     /**
      * Get a block at the specified world position
      */
     fun getBlock(x: Int, y: Int, z: Int): Int {
-        // Check y bounds first
-        if (y < 0 || y >= Chunk.HEIGHT) return 0
         // Convert to chunk coordinates
-        val chunkX = Chunk.worldToChunk(x)
-        val chunkZ = Chunk.worldToChunk(z)
+        val chunkX = Chunk.worldToChunkXZ(x)
+        val chunkY = Chunk.worldToChunkY(y)
+        val chunkZ = Chunk.worldToChunkXZ(z)
         
         // Get the chunk
-        val chunk = getChunk(chunkX, chunkZ) ?: return 0 // Return air for unloaded chunks
+        val chunk = getChunk(chunkX, chunkY, chunkZ) ?: return 0 // Return air for unloaded chunks
         
         // Convert to local coordinates within the chunk
-        val localX = Chunk.worldToLocal(x)
-        val localZ = Chunk.worldToLocal(z)
+        val localX = Chunk.worldToLocalXZ(x)
+        val localY = Chunk.worldToLocalY(y)
+        val localZ = Chunk.worldToLocalXZ(z)
         
-        return chunk.getBlock(localX, y, localZ)
+        return chunk.getBlock(localX, localY, localZ)
     }
     
     /**
@@ -180,18 +180,20 @@ class World(
      */
     fun setBlock(x: Int, y: Int, z: Int, blockId: Int) {
         // Convert to chunk coordinates
-        val chunkX = Chunk.worldToChunk(x)
-        val chunkZ = Chunk.worldToChunk(z)
+        val chunkX = Chunk.worldToChunkXZ(x)
+        val chunkY = Chunk.worldToChunkY(y)
+        val chunkZ = Chunk.worldToChunkXZ(z)
         
         // Get the chunk
-        val chunk = getChunk(chunkX, chunkZ) ?: return // Ignore if chunk is not loaded
+        val chunk = getChunk(chunkX, chunkY, chunkZ) ?: return // Ignore if chunk is not loaded
         
         // Convert to local coordinates within the chunk
-        val localX = Chunk.worldToLocal(x)
-        val localZ = Chunk.worldToLocal(z)
+        val localX = Chunk.worldToLocalXZ(x)
+        val localY = Chunk.worldToLocalY(y)
+        val localZ = Chunk.worldToLocalXZ(z)
         
         // Set the block
-        chunk.setBlock(localX, y, localZ, blockId)
+        chunk.setBlock(localX, localY, localZ, blockId)
         
         // Notify listeners that chunk is updated
         for (listener in chunkListeners) {
@@ -199,17 +201,19 @@ class World(
         }
         
         // Also update adjacent chunks if the block is at the edge
-        if (localX == 0) updateAdjacentChunk(chunkX - 1, chunkZ)
-        if (localX == Chunk.SIZE - 1) updateAdjacentChunk(chunkX + 1, chunkZ)
-        if (localZ == 0) updateAdjacentChunk(chunkX, chunkZ - 1)
-        if (localZ == Chunk.SIZE - 1) updateAdjacentChunk(chunkX, chunkZ + 1)
+        if (localX == 0) updateAdjacentChunk(chunkX - 1, chunkY, chunkZ)
+        if (localX == Chunk.SIZE - 1) updateAdjacentChunk(chunkX + 1, chunkY, chunkZ)
+        if (localY == 0) updateAdjacentChunk(chunkX, chunkY - 1, chunkZ)
+        if (localY == Chunk.HEIGHT - 1) updateAdjacentChunk(chunkX, chunkY + 1, chunkZ)
+        if (localZ == 0) updateAdjacentChunk(chunkX, chunkY, chunkZ - 1)
+        if (localZ == Chunk.SIZE - 1) updateAdjacentChunk(chunkX, chunkY, chunkZ + 1)
     }
     
     /**
      * Update an adjacent chunk if it's loaded
      */
-    private fun updateAdjacentChunk(x: Int, z: Int) {
-        val chunk = getChunk(x, z)
+    private fun updateAdjacentChunk(x: Int, y: Int, z: Int) {
+        val chunk = getChunk(x, y, z)
         chunk?.let {
             it.markDirty()
             for (listener in chunkListeners) {

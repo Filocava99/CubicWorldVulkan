@@ -18,39 +18,51 @@ class TerrainGenerator : WorldGenerator {
      */
     override fun generateChunk(chunk: Chunk) {
         val chunkX = chunk.position.x
-        val chunkZ = chunk.position.y
-        
-        // Generate base heightmap using simplex noise
+        val chunkYPos = chunk.position.y // Chunk's Y position in chunk coordinates
+        val chunkZ = chunk.position.z
+
+        // Generate base heightmap using simplex noise (worldX, worldZ calculation inside is fine)
         val heightMap = generateHeightMap(chunkX, chunkZ)
-        
-        // Generate biome map
+        // Generate biome map (worldX, worldZ calculation inside is fine)
         val biomeMap = generateBiomeMap(chunkX, chunkZ)
-        
-        // Fill the chunk with blocks
-        for (x in 0 until Chunk.SIZE) {
-            for (z in 0 until Chunk.SIZE) {
-                val biome = biomeMap[x][z]
-                val height = heightMap[x][z]
-                
-                // Generate terrain layers
-                generateTerrain(chunk, x, z, height, biome)
-                
-                // Add water up to sea level
-                for (y in height + 1..SEA_LEVEL) {
-                    if (chunk.getBlock(x, y, z) == 0) { // Only add water to empty space
-                        chunk.setBlock(x, y, z, BlockType.WATER.id)
+
+        val worldYOffset = chunkYPos * Chunk.HEIGHT
+
+        for (localX in 0 until Chunk.SIZE) {
+            for (localZ in 0 until Chunk.SIZE) {
+                val surfaceHeightWorldY = heightMap[localX][localZ] // This is a world Y coordinate
+                val biome = biomeMap[localX][localZ]
+
+                for (localY in 0 until Chunk.HEIGHT) {
+                    val worldY = worldYOffset + localY
+                    var blockId = BlockType.AIR.id // Default to air
+
+                    // Determine block type based on worldY, surfaceHeightWorldY, biome, etc.
+                    if (worldY <= BEDROCK_LEVEL) {
+                        blockId = BlockType.BEDROCK.id
+                    } else if (worldY <= surfaceHeightWorldY) {
+                        // Stone or surface block
+                        val surfaceBlock = getSurfaceBlockForBiome(biome)
+                        val worldXForNoise = chunkX * Chunk.SIZE + localX
+                        val worldZForNoise = chunkZ * Chunk.SIZE + localZ
+                        val surfaceDepth = 3 + (SimplexNoise.noise(worldXForNoise * 0.1f, worldZForNoise * 0.1f) * 2).toInt()
+                        if (surfaceHeightWorldY - worldY < surfaceDepth) {
+                            blockId = surfaceBlock
+                        } else {
+                            blockId = BlockType.STONE.id
+                        }
+                    } else if (worldY <= SEA_LEVEL) { // Above surface, up to sea level
+                        blockId = BlockType.WATER.id
+                    } else { // Above surface and above sea level
+                        blockId = BlockType.AIR.id
                     }
+                    chunk.setBlock(localX, localY, localZ, blockId)
                 }
             }
         }
-        
-        // Generate caves
+
         generateCaves(chunk)
-        
-        // Generate ores
         generateOres(chunk)
-        
-        // Generate trees and vegetation
         generateVegetation(chunk, heightMap, biomeMap)
     }
     
@@ -161,9 +173,9 @@ class TerrainGenerator : WorldGenerator {
         val surfaceBlock = getSurfaceBlockForBiome(biome)
         
         // Surface layer
-        val surfaceDepth = 3 + (SimplexNoise.noise(x * 0.1f, z * 0.1f) * 2).toInt()
+        //val surfaceDepth = 3 + (SimplexNoise.noise(x * 0.1f, z * 0.1f) * 2).toInt() // Old logic, replaced in main loop
         for (y in stoneHeight + 1..height) {
-            if (height - y < surfaceDepth) {
+            if (height - y < 3) { // Simplified depth, actual depth logic is in the main loop now
                 chunk.setBlock(x, y, z, surfaceBlock)
             } else {
                 chunk.setBlock(x, y, z, BlockType.STONE.id)
@@ -189,29 +201,36 @@ class TerrainGenerator : WorldGenerator {
      * Generate caves using 3D noise
      */
     private fun generateCaves(chunk: Chunk) {
-        val chunkX = chunk.position.x
-        val chunkZ = chunk.position.y
-        
-        for (x in 0 until Chunk.SIZE) {
-            for (z in 0 until Chunk.SIZE) {
-                for (y in BEDROCK_LEVEL + 1 until SEA_LEVEL) {
-                    // Skip if already air
-                    if (chunk.getBlock(x, y, z) == 0) continue
+        val chunkXPos = chunk.position.x
+        val chunkYPos = chunk.position.y
+        val chunkZPos = chunk.position.z
+        val worldYOffset = chunkYPos * Chunk.HEIGHT
+
+        for (localX in 0 until Chunk.SIZE) {
+            for (localZ in 0 until Chunk.SIZE) {
+                for (localY in 0 until Chunk.HEIGHT) {
+                    val currentWorldY = worldYOffset + localY
+
+                    if (currentWorldY <= BEDROCK_LEVEL || currentWorldY >= SEA_LEVEL) continue
+
+                    // Skip if already air or not stone (caves carve through stone)
+                    if (chunk.getBlock(localX, localY, localZ) != BlockType.STONE.id) continue
                     
-                    // Calculate world coordinates
-                    val worldX = (chunkX * Chunk.SIZE) + x
-                    val worldZ = (chunkZ * Chunk.SIZE) + z
+                    // Calculate world coordinates for noise
+                    val worldX = (chunkXPos * Chunk.SIZE) + localX
+                    val worldZ = (chunkZPos * Chunk.SIZE) + localZ
                     
                     // Generate cave using 3D noise
-                    val noise1 = SimplexNoise.noise(worldX * CAVE_FREQ_1, y * CAVE_FREQ_1, worldZ * CAVE_FREQ_1)
-                    val noise2 = SimplexNoise.noise(worldX * CAVE_FREQ_2, y * CAVE_FREQ_2, worldZ * CAVE_FREQ_2)
+                    // Noise function expects currentWorldY for consistent cave shapes across chunk boundaries
+                    val noise1 = SimplexNoise.noise(worldX * CAVE_FREQ_1, currentWorldY * CAVE_FREQ_1, worldZ * CAVE_FREQ_1)
+                    val noise2 = SimplexNoise.noise(worldX * CAVE_FREQ_2, currentWorldY * CAVE_FREQ_2, worldZ * CAVE_FREQ_2)
                     
                     // Combine noise values
                     val caveNoise = (noise1 + noise2) * 0.5f
                     
                     // Create cave where noise is above threshold
                     if (caveNoise > CAVE_THRESHOLD) {
-                        chunk.setBlock(x, y, z, 0) // Set to air
+                        chunk.setBlock(localX, localY, localZ, BlockType.AIR.id) // Set to air
                     }
                 }
             }
@@ -222,6 +241,9 @@ class TerrainGenerator : WorldGenerator {
      * Generate ore deposits
      */
     private fun generateOres(chunk: Chunk) {
+        val chunkYPos = chunk.position.y
+        val worldYOffset = chunkYPos * Chunk.HEIGHT
+
         // Define ore parameters
         val oreTypes = arrayOf(
             OreType(BlockType.COAL_ORE.id, 20, 128, 0.02f, 8),
@@ -235,34 +257,42 @@ class TerrainGenerator : WorldGenerator {
         // Generate each ore type
         for (ore in oreTypes) {
             for (attempt in 0 until ore.veinsPerChunk) {
-                // Random position within chunk
+                // Random local X and Z for vein center
                 val ox = (Math.random() * Chunk.SIZE).toInt()
-                val oy = (Math.random() * ore.maxHeight).toInt()
                 val oz = (Math.random() * Chunk.SIZE).toInt()
                 
-                // Skip if below minimum height
-                if (oy < BEDROCK_LEVEL + 1) continue
+                // Random world Y for vein center, then convert to localY
+                val randomWorldY = (Math.random() * ore.maxHeight).toInt()
+                
+                // Skip if this world Y is below bedrock level (ores don't spawn in bedrock layer)
+                // MaxHeight is a world Y limit.
+                if (randomWorldY <= BEDROCK_LEVEL) continue
+
+                val localYCenter = randomWorldY - worldYOffset
+                
+                // Skip if vein center is not in this chunk's Y slice
+                if (localYCenter < 0 || localYCenter >= Chunk.HEIGHT) continue
                 
                 // Generate vein
                 val veinSize = (Math.random() * ore.maxVeinSize + 1).toInt()
                 
-                var cx = ox
-                var cy = oy
-                var cz = oz
+                var cx = ox // current local X of vein
+                var cy = localYCenter // current local Y of vein
+                var cz = oz // current local Z of vein
                 
                 for (i in 0 until veinSize) {
-                    // Random offset from center
+                    // Random local offsets
                     val dx = (Math.random() * 3 - 1).toInt()
                     val dy = (Math.random() * 3 - 1).toInt()
                     val dz = (Math.random() * 3 - 1).toInt()
                     
-                    val x = cx + dx
-                    val y = cy + dy
-                    val z = cz + dz
+                    val x = cx + dx // target local X
+                    val y = cy + dy // target local Y
+                    val z = cz + dz // target local Z
                     
-                    // Check bounds
+                    // Check local bounds
                     if (x in 0 until Chunk.SIZE && 
-                        y in 0 until 256 &&
+                        y in 0 until Chunk.HEIGHT && // Use Chunk.HEIGHT for local Y bound
                         z in 0 until Chunk.SIZE) {
                         
                         // Replace stone with ore
@@ -271,9 +301,15 @@ class TerrainGenerator : WorldGenerator {
                         }
                     }
                     
-                    // Set new center for next loop
+                    // Set new center for next loop (local coordinates)
+                    // Ensure the vein tends to stay within the current chunk's y slice or moves slowly
+                    val next_cy_world = (worldYOffset + y)
+                    if (next_cy_world <= BEDROCK_LEVEL || next_cy_world >= ore.maxHeight) {
+                        // if it tries to go out of ore generation range, stop this vein path
+                        break
+                    }
                     cx = x
-                    cy = y
+                    cy = y 
                     cz = z
                 }
             }
@@ -341,35 +377,55 @@ class TerrainGenerator : WorldGenerator {
     
     /**
      * Generate an oak tree
+     * @param x local X coordinate of the tree base
+     * @param baseWorldY world Y coordinate of the tree base (on top of the surface block)
+     * @param z local Z coordinate of the tree base
      */
-    private fun generateOakTree(chunk: Chunk, x: Int, y: Int, z: Int) {
-        // Trunk height (5-7 blocks)
+    private fun generateOakTree(chunk: Chunk, x: Int, baseWorldY: Int, z: Int) {
+        val chunkYPos = chunk.position.y
+        val worldYOffset = chunkYPos * Chunk.HEIGHT
         val trunkHeight = 5 + (Math.random() * 3).toInt()
-        
+
         // Generate trunk
-        for (ty in y until y + trunkHeight) {
-            chunk.setBlock(x, ty, z, BlockType.LOG_OAK.id)
+        for (ty_offset in 0 until trunkHeight) {
+            val currentTrunkWorldY = baseWorldY + ty_offset
+            val localTy = currentTrunkWorldY - worldYOffset
+            if (localTy in 0 until Chunk.HEIGHT) {
+                // Ensure x and z are within chunk bounds as well (though usually they are if called from generateVegetation)
+                if (x in 0 until Chunk.SIZE && z in 0 until Chunk.SIZE) {
+                    chunk.setBlock(x, localTy, z, BlockType.LOG_OAK.id)
+                }
+            }
         }
-        
+
         // Generate leaves (spherical shape)
-        for (lx in x - 2..x + 2) {
-            for (ly in y + trunkHeight - 3..y + trunkHeight + 1) {
-                for (lz in z - 2..z + 2) {
-                    // Skip if outside chunk bounds
-                    if (lx < 0 || lx >= Chunk.SIZE || ly < 0 || ly >= 256 || lz < 0 || lz >= Chunk.SIZE) {
-                        continue
-                    }
+        val leafCenterWorldY = baseWorldY + trunkHeight - 1 
+        for (lx_offset in -2..2) {
+            val currentLeafLocalX = x + lx_offset
+            if (currentLeafLocalX < 0 || currentLeafLocalX >= Chunk.SIZE) continue
+
+            for (lz_offset in -2..2) {
+                val currentLeafLocalZ = z + lz_offset
+                if (currentLeafLocalZ < 0 || currentLeafLocalZ >= Chunk.SIZE) continue
+
+                // Iterate Y relative to the leaf sphere's center; y loop is for offsets from leafCenterWorldY
+                for (ly_offset_from_center in -2..2) { 
+                    val currentLeafWorldY = leafCenterWorldY + ly_offset_from_center
                     
-                    // Distance from trunk
+                    // More precise leaf Y range check against where leaves should form relative to trunk top
+                    if (currentLeafWorldY < baseWorldY + trunkHeight - 3 || currentLeafWorldY > baseWorldY + trunkHeight + 1) continue
+
+                    val localLy = currentLeafWorldY - worldYOffset
+                    if (localLy < 0 || localLy >= Chunk.HEIGHT) continue
+                    
                     val distance = sqrt(
-                        (lx - x).toDouble().pow(2) + 
-                        (ly - (y + trunkHeight - 1)).toDouble().pow(2) + 
-                        (lz - z).toDouble().pow(2)
+                        lx_offset.toDouble().pow(2) +
+                        ly_offset_from_center.toDouble().pow(2) + // Use offset from center for spherical shape
+                        lz_offset.toDouble().pow(2)
                     )
                     
-                    // Add leaves in a spherical pattern
-                    if (distance <= 2.5 && chunk.getBlock(lx, ly, lz) == 0) {
-                        chunk.setBlock(lx, ly, lz, BlockType.LEAVES_OAK.id)
+                    if (distance <= 2.5 && chunk.getBlock(currentLeafLocalX, localLy, currentLeafLocalZ) == BlockType.AIR.id) {
+                        chunk.setBlock(currentLeafLocalX, localLy, currentLeafLocalZ, BlockType.LEAVES_OAK.id)
                     }
                 }
             }
@@ -378,78 +434,117 @@ class TerrainGenerator : WorldGenerator {
     
     /**
      * Generate a spruce tree
+     * @param x local X coordinate of the tree base
+     * @param baseWorldY world Y coordinate of the tree base
+     * @param z local Z coordinate of the tree base
      */
-    private fun generateSpruceTree(chunk: Chunk, x: Int, y: Int, z: Int) {
-        // Trunk height (6-8 blocks)
+    private fun generateSpruceTree(chunk: Chunk, x: Int, baseWorldY: Int, z: Int) {
+        val chunkYPos = chunk.position.y
+        val worldYOffset = chunkYPos * Chunk.HEIGHT
         val trunkHeight = 6 + (Math.random() * 3).toInt()
-        
+
         // Generate trunk
-        for (ty in y until y + trunkHeight) {
-            chunk.setBlock(x, ty, z, BlockType.LOG_OAK.id)
+        for (ty_offset in 0 until trunkHeight) {
+            val currentTrunkWorldY = baseWorldY + ty_offset
+            val localTy = currentTrunkWorldY - worldYOffset
+            if (localTy in 0 until Chunk.HEIGHT) {
+                 if (x in 0 until Chunk.SIZE && z in 0 until Chunk.SIZE) {
+                    chunk.setBlock(x, localTy, z, BlockType.LOG_OAK.id) // Assuming LOG_SPRUCE if available
+                 }
+            }
         }
-        
+
         // Generate leaves (conical shape)
-        val leafRadius = 2
-        for (ly in y + 2 until y + trunkHeight) {
-            // Calculate radius for this level
-            val levelRadius = max(1, leafRadius - (ly - (y + 2)))
-            
-            for (lx in x - levelRadius..x + levelRadius) {
-                for (lz in z - levelRadius..z + levelRadius) {
-                    // Skip if outside chunk bounds
-                    if (lx < 0 || lx >= Chunk.SIZE || lz < 0 || lz >= Chunk.SIZE) {
-                        continue
-                    }
+        val leafRadiusBase = 2 
+        // Leaves start a bit up the trunk (e.g. baseWorldY + 2) and go almost to the top
+        for (leafLayerWorldY in (baseWorldY + 2) until (baseWorldY + trunkHeight)) {
+            val localLy = leafLayerWorldY - worldYOffset
+            if (localLy < 0 || localLy >= Chunk.HEIGHT) continue
+
+            val levelInCone = leafLayerWorldY - (baseWorldY + 2) 
+            val radiusAtLevel = max(0, leafRadiusBase - levelInCone) 
+
+            for (lx_offset in -radiusAtLevel..radiusAtLevel) {
+                val currentLeafLocalX = x + lx_offset
+                if (currentLeafLocalX < 0 || currentLeafLocalX >= Chunk.SIZE) continue
+
+                for (lz_offset in -radiusAtLevel..radiusAtLevel) {
+                    val currentLeafLocalZ = z + lz_offset
+                    if (currentLeafLocalZ < 0 || currentLeafLocalZ >= Chunk.SIZE) continue
                     
-                    // Distance from trunk
-                    val distance = sqrt((lx - x).toDouble().pow(2) + (lz - z).toDouble().pow(2))
-                    
-                    // Add leaves in a conical pattern
-                    if (distance <= levelRadius && chunk.getBlock(lx, ly, lz) == 0) {
-                        chunk.setBlock(lx, ly, lz, BlockType.LEAVES_OAK.id)
+                    val distanceXZ = sqrt(lx_offset.toDouble().pow(2) + lz_offset.toDouble().pow(2))
+                    if (distanceXZ <= radiusAtLevel) { // Check if within the circle for this cone level
+                        if (chunk.getBlock(currentLeafLocalX, localLy, currentLeafLocalZ) == BlockType.AIR.id) {
+                            chunk.setBlock(currentLeafLocalX, localLy, currentLeafLocalZ, BlockType.LEAVES_OAK.id) // Assuming LEAVES_SPRUCE
+                        }
                     }
                 }
             }
         }
         
-        // Top leaves
-        if (y + trunkHeight < 256 && x >= 0 && x < Chunk.SIZE && z >= 0 && z < Chunk.SIZE) {
-            chunk.setBlock(x, y + trunkHeight, z, BlockType.LEAVES_OAK.id)
+        // Topmost leaf block
+        val topLeafWorldY = baseWorldY + trunkHeight
+        val localTopLy = topLeafWorldY - worldYOffset
+        if (localTopLy in 0 until Chunk.HEIGHT) {
+            if (x in 0 until Chunk.SIZE && z in 0 until Chunk.SIZE) {
+                 if (chunk.getBlock(x, localTopLy, z) == BlockType.AIR.id) {
+                    chunk.setBlock(x, localTopLy, z, BlockType.LEAVES_OAK.id) // Assuming LEAVES_SPRUCE
+                 }
+            }
         }
     }
     
     /**
      * Generate a jungle tree
+     * @param x local X coordinate of the tree base
+     * @param baseWorldY world Y coordinate of the tree base
+     * @param z local Z coordinate of the tree base
      */
-    private fun generateJungleTree(chunk: Chunk, x: Int, y: Int, z: Int) {
-        // Trunk height (8-12 blocks)
+    private fun generateJungleTree(chunk: Chunk, x: Int, baseWorldY: Int, z: Int) {
+        val chunkYPos = chunk.position.y
+        val worldYOffset = chunkYPos * Chunk.HEIGHT
         val trunkHeight = 8 + (Math.random() * 5).toInt()
-        
+
         // Generate trunk
-        for (ty in y until y + trunkHeight) {
-            chunk.setBlock(x, ty, z, BlockType.LOG_OAK.id)
+        for (ty_offset in 0 until trunkHeight) {
+            val currentTrunkWorldY = baseWorldY + ty_offset
+            val localTy = currentTrunkWorldY - worldYOffset
+            if (localTy in 0 until Chunk.HEIGHT) {
+                if (x in 0 until Chunk.SIZE && z in 0 until Chunk.SIZE) {
+                    chunk.setBlock(x, localTy, z, BlockType.LOG_OAK.id) // Assuming LOG_JUNGLE
+                }
+            }
         }
-        
+
         // Generate leaves (large irregular sphere)
-        for (lx in x - 3..x + 3) {
-            for (ly in y + trunkHeight - 4..y + trunkHeight + 2) {
-                for (lz in z - 3..z + 3) {
-                    // Skip if outside chunk bounds
-                    if (lx < 0 || lx >= Chunk.SIZE || ly < 0 || ly >= 256 || lz < 0 || lz >= Chunk.SIZE) {
-                        continue
-                    }
+        val leafCenterWorldY = baseWorldY + trunkHeight -1 
+        for (lx_offset in -3..3) {
+            val currentLeafLocalX = x + lx_offset
+            if (currentLeafLocalX < 0 || currentLeafLocalX >= Chunk.SIZE) continue
+
+            for (lz_offset in -3..3) {
+                val currentLeafLocalZ = z + lz_offset
+                if (currentLeafLocalZ < 0 || currentLeafLocalZ >= Chunk.SIZE) continue
+
+                for (ly_offset_from_center in -3..3) { 
+                    val currentLeafWorldY = leafCenterWorldY + ly_offset_from_center
                     
-                    // Distance from trunk
+                    // Rough Y bounds for jungle leaves
+                    if (currentLeafWorldY < baseWorldY + trunkHeight - 4 || currentLeafWorldY > baseWorldY + trunkHeight + 2) continue
+
+                    val localLy = currentLeafWorldY - worldYOffset
+                    if (localLy < 0 || localLy >= Chunk.HEIGHT) continue
+                    
                     val distance = sqrt(
-                        (lx - x).toDouble().pow(2) + 
-                        (ly - (y + trunkHeight - 1)).toDouble().pow(2) + 
-                        (lz - z).toDouble().pow(2)
+                        lx_offset.toDouble().pow(2) +
+                        ly_offset_from_center.toDouble().pow(2) +
+                        lz_offset.toDouble().pow(2)
                     )
                     
-                    // Add leaves in a irregular spherical pattern (with noise)
-                    val noise = SimplexNoise.noise(lx * 0.5f, ly * 0.5f, lz * 0.5f) * 0.5f
-                    if (distance <= (3.0 + noise) && chunk.getBlock(lx, ly, lz) == 0) {
-                        chunk.setBlock(lx, ly, lz, BlockType.LEAVES_OAK.id)
+                    // Using local coordinates for noise here for simplicity, though world coords would be more consistent for noise patterns
+                    val noise = SimplexNoise.noise(currentLeafLocalX * 0.5f, localLy * 0.5f, currentLeafLocalZ * 0.5f) * 0.5f
+                    if (distance <= (3.0 + noise) && chunk.getBlock(currentLeafLocalX, localLy, currentLeafLocalZ) == BlockType.AIR.id) {
+                        chunk.setBlock(currentLeafLocalX, localLy, currentLeafLocalZ, BlockType.LEAVES_OAK.id) // Assuming LEAVES_JUNGLE
                     }
                 }
             }
@@ -483,9 +578,9 @@ class TerrainGenerator : WorldGenerator {
     
     companion object {
         // Generation parameters
-        private const val SEA_LEVEL = 60
-        private const val BEDROCK_LEVEL = 5
-        private const val MIN_STONE_HEIGHT = 40
+        private const val SEA_LEVEL = 60 // World Y
+        private const val BEDROCK_LEVEL = 5 // World Y
+        private const val MIN_STONE_HEIGHT = 40 // World Y, though less relevant with new terrain logic
         
         // Noise parameters for height map
         private const val HEIGHT_SCALE = 50.0f
