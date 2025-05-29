@@ -84,6 +84,10 @@ class CubicWorldEngine : IAppLogic {
             // Initialize Vulkan integration
             vulkanIntegration.initialize(render, scene)
             
+            // Enable directional culling for better performance
+            vulkanIntegration.setDirectionalCullingEnabled(true)
+            println("Directional face culling enabled for improved performance")
+            
             // Initialize the world generator registry
             WorldGeneratorRegistry.initialize()
             
@@ -401,6 +405,11 @@ class CubicWorldEngine : IAppLogic {
         // Update chunk manager with current player position for dynamic loading
         val camera = scene.camera
         chunkManager.updatePlayerPosition(camera.position.x, camera.position.z)
+        
+        // Update directional chunk visibility based on camera direction
+        val cameraForward = Vector3f()
+        camera.getViewMatrix().positiveZ(cameraForward).negate() // Get forward direction from view matrix
+        vulkanIntegration.updateDirectionalChunkVisibility(cameraForward, camera.position)
         
         // Optional: Print debug info periodically (every 5 seconds)
         if (System.currentTimeMillis() % 5000 < 50) { // Roughly every 5 seconds

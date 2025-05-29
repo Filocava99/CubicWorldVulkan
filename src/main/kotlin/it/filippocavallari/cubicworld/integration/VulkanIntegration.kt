@@ -1,5 +1,6 @@
 package it.filippocavallari.cubicworld.integration
 
+import it.filippocavallari.cubicworld.data.block.FaceDirection
 import it.filippocavallari.cubicworld.models.Model
 import it.filippocavallari.cubicworld.models.ModelManager
 import it.filippocavallari.cubicworld.textures.TextureAtlasLoader
@@ -8,6 +9,7 @@ import it.filippocavallari.cubicworld.textures.TextureStitcher
 import it.filippocavallari.cubicworld.world.World
 import it.filippocavallari.cubicworld.world.chunk.Chunk
 import it.filippocavallari.cubicworld.integration.VulkanChunkMeshBuilder
+import it.filippocavallari.cubicworld.integration.DirectionalVulkanChunkMeshBuilder
 import org.joml.Vector3f
 import org.joml.Vector4f
 import org.lwjgl.vulkan.VkDevice
@@ -40,13 +42,19 @@ class VulkanIntegration {
     
     // Chunk mesh building and caching
     private lateinit var chunkMeshBuilder: VulkanChunkMeshBuilder
+    private lateinit var directionalChunkMeshBuilder: DirectionalVulkanChunkMeshBuilder
     private val chunkMeshCache = ConcurrentHashMap<String, ModelData>()
+    private val directionalChunkMeshCache = ConcurrentHashMap<String, Map<FaceDirection, ModelData>>()
     
     // Track loaded chunks to manage descriptor pool
     private val loadedChunks = ConcurrentHashMap<String, String>() // chunkId -> modelId
+    private val directionalLoadedChunks = ConcurrentHashMap<String, Map<FaceDirection, String>>() // chunkId -> direction -> entityId
     private val chunkLoadOrder = Collections.synchronizedList(mutableListOf<String>()) // Track order for LRU
     private val modelRefCount = ConcurrentHashMap<String, Int>() // modelId -> reference count
     private val MAX_LOADED_CHUNKS = 500 // Increased limit
+    
+    // Use directional culling by default
+    private var useDirectionalCulling = true
     
     // Track loaded models to prevent duplication
     private val loadedModels = ConcurrentHashMap<String, Boolean>() // modelId -> loaded
@@ -70,6 +78,7 @@ class VulkanIntegration {
         
         // Initialize chunk mesh builder
         chunkMeshBuilder = VulkanChunkMeshBuilder(textureStitcher)
+        directionalChunkMeshBuilder = DirectionalVulkanChunkMeshBuilder(textureStitcher)
         
         // Skip model loading entirely for now
         println("VulkanIntegration initialized with minimal resources")
@@ -286,31 +295,70 @@ class VulkanIntegration {
      * Internal method to remove a chunk mesh
      */
     private fun removeChunkMeshInternal(chunkId: String) {
-        val modelId = loadedChunks[chunkId] ?: return
-        
-        // Find and remove entity from scene
-        val modelData = chunkMeshCache[chunkId]
-        val entities = if (modelData != null) vulkanScene.getEntitiesByModelId(modelData.modelId) else null
-        val entity = entities?.find { it.getId() == chunkId }
-        
-        if (entity != null) {
-            vulkanScene.removeEntity(entity)
-            println("Removed entity for chunk $chunkId")
-        }
-        
-        // Update reference count
-        val refCount = modelRefCount[modelId] ?: 1
-        if (refCount <= 1) {
-            modelRefCount.remove(modelId)
-            loadedModels.remove(modelId)
-            println("Model $modelId no longer in use, marked for cleanup")
+        if (useDirectionalCulling) {
+            // Remove directional meshes
+            val directionalEntities = directionalLoadedChunks[chunkId]
+            if (directionalEntities != null) {
+                for ((direction, entityId) in directionalEntities) {
+                    // Find and remove entity from scene
+                    var entityFound = false
+                    for ((modelId, entities) in vulkanScene.entitiesMap) {
+                        val entity = entities?.find { it.getId() == entityId }
+                        if (entity != null) {
+                            vulkanScene.removeEntity(entity)
+                            println("Removed directional entity for chunk $chunkId direction $direction")
+                            entityFound = true
+                            
+                            // Update reference count for the model
+                            val refCount = modelRefCount[modelId] ?: 1
+                            if (refCount <= 1) {
+                                modelRefCount.remove(modelId)
+                                loadedModels.remove(modelId)
+                                println("Model $modelId no longer in use, marked for cleanup")
+                            } else {
+                                modelRefCount[modelId] = refCount - 1
+                            }
+                            break
+                        }
+                    }
+                    
+                    if (!entityFound) {
+                        println("Warning: Could not find entity $entityId to remove")
+                    }
+                }
+                
+                // Remove from tracking
+                directionalLoadedChunks.remove(chunkId)
+                directionalChunkMeshCache.remove(chunkId)
+            }
         } else {
-            modelRefCount[modelId] = refCount - 1
+            // Original single mesh removal
+            val modelId = loadedChunks[chunkId] ?: return
+            
+            // Find and remove entity from scene
+            val modelData = chunkMeshCache[chunkId]
+            val entities = if (modelData != null) vulkanScene.getEntitiesByModelId(modelData.modelId) else null
+            val entity = entities?.find { it.getId() == chunkId }
+            
+            if (entity != null) {
+                vulkanScene.removeEntity(entity)
+                println("Removed entity for chunk $chunkId")
+            }
+            
+            // Update reference count
+            val refCount = modelRefCount[modelId] ?: 1
+            if (refCount <= 1) {
+                modelRefCount.remove(modelId)
+                loadedModels.remove(modelId)
+                println("Model $modelId no longer in use, marked for cleanup")
+            } else {
+                modelRefCount[modelId] = refCount - 1
+            }
+            
+            // Remove from tracking
+            loadedChunks.remove(chunkId)
+            chunkMeshCache.remove(chunkId)
         }
-        
-        // Remove from tracking
-        loadedChunks.remove(chunkId)
-        chunkMeshCache.remove(chunkId)
     }
     
     /**
@@ -322,6 +370,118 @@ class VulkanIntegration {
      */
     @Synchronized
     fun createChunkMesh(chunk: Chunk): String {
+        return if (useDirectionalCulling) {
+            createDirectionalChunkMesh(chunk)
+        } else {
+            createSingleChunkMesh(chunk)
+        }
+    }
+    
+    /**
+     * Create directional meshes for a chunk (6 meshes, one per face direction)
+     */
+    private fun createDirectionalChunkMesh(chunk: Chunk): String {
+        println("Building directional meshes for chunk at (${chunk.position.x}, ${chunk.position.y})")
+        
+        // Check if we can load more chunks
+        if (!canLoadMoreChunks()) {
+            println("Chunk limit reached, unloading old chunks")
+            unloadOldestChunks(50)
+        }
+        
+        // Generate directional meshes from the chunk data
+        val directionalMeshes = directionalChunkMeshBuilder.buildDirectionalMeshes(chunk)
+        
+        // Skip if no mesh data (empty chunk)
+        if (directionalMeshes.isEmpty()) {
+            println("Skipping empty chunk mesh")
+            return ""
+        }
+        
+        // Get a unique ID for this chunk
+        val chunkId = getChunkId(chunk)
+        
+        // Check if this exact chunk mesh is already loaded
+        val existingMeshes = directionalChunkMeshCache[chunkId]
+        if (existingMeshes != null && !chunk.isDirty()) {
+            println("Chunk $chunkId is already loaded with directional meshes. Skipping.")
+            return chunkId
+        }
+        
+        // Remove existing entities if any
+        val existingEntities = directionalLoadedChunks[chunkId]
+        if (existingEntities != null) {
+            for ((direction, entityId) in existingEntities) {
+                val entities = vulkanScene.getEntitiesByModelId(entityId)
+                val entity = entities?.find { it.getId() == entityId }
+                if (entity != null) {
+                    vulkanScene.removeEntity(entity)
+                    println("Removed existing entity for chunk $chunkId direction $direction")
+                }
+            }
+        }
+        
+        // Store the meshes for future reference
+        directionalChunkMeshCache[chunkId] = directionalMeshes
+        
+        // Track loaded entities for this chunk
+        val loadedEntities = mutableMapOf<FaceDirection, String>()
+        
+        // Load each directional mesh
+        for ((direction, modelData) in directionalMeshes) {
+            // Check if this model was already loaded
+            val modelAlreadyLoaded = loadedModels.containsKey(modelData.modelId)
+            
+            if (!modelAlreadyLoaded) {
+                try {
+                    println("Loading directional mesh for $direction with ${modelData.meshDataList[0].positions.size / 3} vertices")
+                    vulkanRender.loadModels(listOf(modelData))
+                    loadedModels[modelData.modelId] = true
+                    modelRefCount[modelData.modelId] = 1
+                } catch (e: Exception) {
+                    println("ERROR: Failed to load directional chunk model: ${e.message}")
+                    if (e.message?.contains("-1000069000") == true || 
+                        e.message?.contains("descriptor set") == true) {
+                        println("Descriptor pool exhausted!")
+                        throw RuntimeException("Descriptor pool exhausted", e)
+                    }
+                    throw e
+                }
+            } else {
+                println("Model ${modelData.modelId} already loaded, reusing")
+                modelRefCount[modelData.modelId] = (modelRefCount[modelData.modelId] ?: 0) + 1
+            }
+            
+            // Create entity for this directional mesh
+            val entityId = "${chunkId}_${direction.name.lowercase()}"
+            val entity = Entity(entityId, modelData.modelId, Vector3f(0.0f, 0.0f, 0.0f))
+            
+            // Add entity to scene
+            vulkanScene.addEntity(entity)
+            loadedEntities[direction] = entityId
+            
+            println("Added entity for chunk $chunkId direction $direction")
+        }
+        
+        // Track this chunk
+        directionalLoadedChunks[chunkId] = loadedEntities
+        synchronized(chunkLoadOrder) {
+            chunkLoadOrder.add(chunkId)
+        }
+        
+        // Mark chunk as clean
+        chunk.markClean()
+        
+        println("Created ${loadedEntities.size} directional entities for chunk $chunkId")
+        println("Chunks loaded: ${chunkLoadOrder.size}/$MAX_LOADED_CHUNKS")
+        
+        return chunkId
+    }
+    
+    /**
+     * Create a single mesh for a chunk (original implementation)
+     */
+    private fun createSingleChunkMesh(chunk: Chunk): String {
         println("Building mesh for chunk at (${chunk.position.x}, ${chunk.position.y})")
         
         // Check if we can load more chunks
@@ -535,29 +695,58 @@ class VulkanIntegration {
     fun resetChunkRendering() {
         println("Resetting chunk rendering system")
         
-        // Remove all chunk entities from scene
-        val chunksToRemove = ArrayList<String>()
-        
-        // Collect all chunk IDs
-        chunkMeshCache.keys.forEach { chunkId ->
-            chunksToRemove.add(chunkId)
-        }
-        
-        // Remove each chunk entity
-        chunksToRemove.forEach { chunkId ->
-            val modelData = chunkMeshCache[chunkId]
-            val entities = if (modelData != null) vulkanScene.getEntitiesByModelId(modelData.modelId) else null
-            val entity = entities?.find { it.getId() == chunkId }
-            
-            if (entity != null) {
-                vulkanScene.removeEntity(entity)
-                println("Removed entity for chunk $chunkId during reset")
+        if (useDirectionalCulling) {
+            // Remove all directional chunk entities
+            for ((chunkId, directionalEntities) in directionalLoadedChunks) {
+                for ((direction, entityId) in directionalEntities) {
+                    // Search through all model entities to find this entity
+                    var found = false
+                    for ((modelId, entities) in vulkanScene.entitiesMap) {
+                        val entity = entities?.find { it.getId() == entityId }
+                        if (entity != null) {
+                            vulkanScene.removeEntity(entity)
+                            println("Removed directional entity for chunk $chunkId direction $direction during reset")
+                            found = true
+                            break
+                        }
+                    }
+                    
+                    if (!found) {
+                        println("Warning: Could not find entity $entityId during reset")
+                    }
+                }
             }
+            
+            // Clear directional caches
+            directionalChunkMeshCache.clear()
+            directionalLoadedChunks.clear()
+        } else {
+            // Remove all chunk entities from scene
+            val chunksToRemove = ArrayList<String>()
+            
+            // Collect all chunk IDs
+            chunkMeshCache.keys.forEach { chunkId ->
+                chunksToRemove.add(chunkId)
+            }
+            
+            // Remove each chunk entity
+            chunksToRemove.forEach { chunkId ->
+                val modelData = chunkMeshCache[chunkId]
+                val entities = if (modelData != null) vulkanScene.getEntitiesByModelId(modelData.modelId) else null
+                val entity = entities?.find { it.getId() == chunkId }
+                
+                if (entity != null) {
+                    vulkanScene.removeEntity(entity)
+                    println("Removed entity for chunk $chunkId during reset")
+                }
+            }
+            
+            // Clear the caches
+            chunkMeshCache.clear()
+            loadedChunks.clear()
         }
         
-        // Clear the caches
-        chunkMeshCache.clear()
-        loadedChunks.clear()
+        // Clear common caches
         loadedModels.clear()
         modelRefCount.clear()
         chunkLoadOrder.clear()
@@ -583,5 +772,119 @@ class VulkanIntegration {
         resetChunkRendering()
         
         println("VulkanIntegration cleaned up")
+    }
+    
+    /**
+     * Toggle between directional and single mesh mode
+     */
+    fun setDirectionalCullingEnabled(enabled: Boolean) {
+        if (useDirectionalCulling != enabled) {
+            println("Switching directional culling to: $enabled")
+            
+            // Reset current rendering
+            resetChunkRendering()
+            
+            // Update flag
+            useDirectionalCulling = enabled
+        }
+    }
+    
+    /**
+     * Update visibility of directional chunk meshes based on camera direction
+     * This should be called each frame with the current camera direction
+     * 
+     * @param cameraForward The forward direction vector of the camera (normalized)
+     * @param cameraPosition The position of the camera
+     */
+    fun updateDirectionalChunkVisibility(cameraForward: Vector3f, cameraPosition: Vector3f) {
+        if (!useDirectionalCulling) return
+        
+        // For now, we'll just log which faces should be visible
+        // In a full implementation, we would need to modify the rendering pipeline
+        // to skip drawing certain entities based on visibility flags
+        
+        var visibleFaces = 0
+        var totalFaces = 0
+        
+        // For each loaded chunk, calculate which faces should be visible
+        for ((chunkId, directionalEntities) in directionalLoadedChunks) {
+            // Parse chunk position from ID
+            val parts = chunkId.split("_")
+            if (parts.size >= 3) {
+                val chunkX = parts[1].toIntOrNull() ?: continue
+                val chunkZ = parts[2].toIntOrNull() ?: continue
+                
+                // Calculate chunk center position
+                val chunkCenterX = chunkX * Chunk.SIZE + Chunk.SIZE / 2.0f
+                val chunkCenterZ = chunkZ * Chunk.SIZE + Chunk.SIZE / 2.0f
+                val chunkCenterY = cameraPosition.y
+                
+                // Vector from camera to chunk center
+                val toChunk = Vector3f(
+                    chunkCenterX - cameraPosition.x,
+                    chunkCenterY - cameraPosition.y,
+                    chunkCenterZ - cameraPosition.z
+                )
+                
+                // Check visibility for each direction
+                for ((direction, entityId) in directionalEntities) {
+                    totalFaces++
+                    val isVisible = shouldDirectionBeVisible(direction, cameraForward, toChunk)
+                    if (isVisible) {
+                        visibleFaces++
+                    }
+                    
+                    // TODO: In a full implementation, we would set a visibility flag on the entity
+                    // or communicate with the renderer to skip invisible entities
+                }
+            }
+        }
+        
+        // Log culling effectiveness periodically
+        if (System.currentTimeMillis() % 10000 < 50) { // Every 10 seconds
+            val culledPercentage = if (totalFaces > 0) {
+                ((totalFaces - visibleFaces) * 100.0f / totalFaces)
+            } else 0.0f
+            
+            println("Directional culling stats: $visibleFaces/$totalFaces faces visible (${String.format("%.1f", culledPercentage)}% culled)")
+        }
+    }
+    
+    /**
+     * Determine if a face direction should be visible based on camera orientation
+     */
+    private fun shouldDirectionBeVisible(
+        direction: FaceDirection,
+        cameraForward: Vector3f,
+        toChunk: Vector3f
+    ): Boolean {
+        // Get the normal vector for this face direction
+        val faceNormal = when (direction) {
+            FaceDirection.UP -> Vector3f(0f, 1f, 0f)
+            FaceDirection.DOWN -> Vector3f(0f, -1f, 0f)
+            FaceDirection.NORTH -> Vector3f(0f, 0f, -1f)
+            FaceDirection.SOUTH -> Vector3f(0f, 0f, 1f)
+            FaceDirection.EAST -> Vector3f(1f, 0f, 0f)
+            FaceDirection.WEST -> Vector3f(-1f, 0f, 0f)
+        }
+        
+        // For top/bottom faces, use a different strategy
+        if (direction == FaceDirection.UP || direction == FaceDirection.DOWN) {
+            // Always render top faces if camera is above chunk center
+            // Always render bottom faces if camera is below chunk center
+            return if (direction == FaceDirection.UP) {
+                toChunk.y < 0 // Camera is above chunk
+            } else {
+                toChunk.y > 0 // Camera is below chunk
+            }
+        }
+        
+        // For side faces, check if the face normal points towards the camera
+        // If dot product is negative, the face is pointing towards the camera
+        val dotProduct = faceNormal.dot(toChunk.normalize())
+        
+        // Face is visible if it's pointing towards the camera (negative dot product)
+        // Add a small threshold to prevent flickering at edges
+        return dotProduct < 0.1f
     }
 }
