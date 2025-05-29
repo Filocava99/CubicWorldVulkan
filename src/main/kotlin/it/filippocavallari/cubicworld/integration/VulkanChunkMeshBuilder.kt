@@ -21,11 +21,9 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
     }
     
     // Mesh data lists
-    private val positions = ArrayList<Float>()
+    private val positions = ArrayList<Byte>()
     private val textCoords = ArrayList<Float>()
     private val normals = ArrayList<Float>()
-    private val tangents = ArrayList<Float>()
-    private val biTangents = ArrayList<Float>()
     private val indices = ArrayList<Int>()
     
     // Face normal vectors
@@ -56,8 +54,6 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         positions.clear()
         textCoords.clear()
         normals.clear()
-        tangents.clear()
-        biTangents.clear()
         indices.clear()
         
         var vertexCount = 0
@@ -172,11 +168,9 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         validateChunkMesh(chunk, vertexCount, facesAdded)
         
         // Convert lists to arrays for ModelData
-        val posArray = positions.toFloatArray()
+        val posArray = positions.toByteArray()
         val texCoordsArray = textCoords.toFloatArray()
         val normalsArray = normals.toFloatArray()
-        val tangentsArray = tangents.toFloatArray()
-        val biTangentsArray = biTangents.toFloatArray()
         val indicesArray = indices.toIntArray()
         
         // Create material list
@@ -219,8 +213,6 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
                 meshDataList.add(ModelData.MeshData(
                     posArray,
                     normalsArray,
-                    tangentsArray,
-                    biTangentsArray,
                     texCoordsArray,
                     indicesArray,
                     0  // Material index
@@ -547,62 +539,6 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
             }
         }
         
-        // Add tangents and bitangents based on face
-        when (face) {
-            FaceDirection.UP, FaceDirection.DOWN -> {
-                // For top and bottom faces, tangent along X axis
-                val tangent = floatArrayOf(1.0f, 0.0f, 0.0f)
-                val bitangent = if (face == FaceDirection.UP) {
-                    floatArrayOf(0.0f, 0.0f, 1.0f)
-                } else {
-                    floatArrayOf(0.0f, 0.0f, -1.0f)
-                }
-                
-                // Add tangent and bitangent for all vertices
-                repeat(4) {
-                    tangents.add(tangent[0])
-                    tangents.add(tangent[1])
-                    tangents.add(tangent[2])
-                    
-                    biTangents.add(bitangent[0])
-                    biTangents.add(bitangent[1])
-                    biTangents.add(bitangent[2])
-                }
-            }
-            FaceDirection.NORTH, FaceDirection.SOUTH -> {
-                // For north and south faces, tangent along X axis
-                val tangent = floatArrayOf(if (face == FaceDirection.NORTH) -1.0f else 1.0f, 0.0f, 0.0f)
-                val bitangent = floatArrayOf(0.0f, 1.0f, 0.0f)
-                
-                // Add tangent and bitangent for all vertices
-                repeat(4) {
-                    tangents.add(tangent[0])
-                    tangents.add(tangent[1])
-                    tangents.add(tangent[2])
-                    
-                    biTangents.add(bitangent[0])
-                    biTangents.add(bitangent[1])
-                    biTangents.add(bitangent[2])
-                }
-            }
-            FaceDirection.EAST, FaceDirection.WEST -> {
-                // For east and west faces, tangent along Z axis
-                val tangent = floatArrayOf(0.0f, 0.0f, if (face == FaceDirection.EAST) -1.0f else 1.0f)
-                val bitangent = floatArrayOf(0.0f, 1.0f, 0.0f)
-                
-                // Add tangent and bitangent for all vertices
-                repeat(4) {
-                    tangents.add(tangent[0])
-                    tangents.add(tangent[1])
-                    tangents.add(tangent[2])
-                    
-                    biTangents.add(bitangent[0])
-                    biTangents.add(bitangent[1])
-                    biTangents.add(bitangent[2])
-                }
-            }
-        }
-        
         // Add indices for triangles (ensure correct winding order)
         indices.add(vertexIndex)
         indices.add(vertexIndex + 1)
@@ -650,9 +586,9 @@ class VulkanChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
      */
     private fun addVertex(x: Float, y: Float, z: Float, u: Float, v: Float, normal: FloatArray) {
         // Add position
-        positions.add(x)
-        positions.add(y)
-        positions.add(z)
+        positions.add(x.toByte())
+        positions.add(y.toByte())
+        positions.add(z.toByte())
         
         // Add texture coordinates
         textCoords.add(u)

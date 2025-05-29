@@ -8,9 +8,10 @@ public class VertexBufferStructure extends VertexInputStateInfo {
 
     public static final int TEXT_COORD_COMPONENTS = 2;
     private static final int NORMAL_COMPONENTS = 3;
-    private static final int NUMBER_OF_ATTRIBUTES = 5;
+    private static final int NUMBER_OF_ATTRIBUTES = 3; // Position, Normal, TextureCoords
     private static final int POSITION_COMPONENTS = 3;
-    public static final int SIZE_IN_BYTES = (POSITION_COMPONENTS + NORMAL_COMPONENTS * 3 + TEXT_COORD_COMPONENTS) * GraphConstants.FLOAT_LENGTH;
+    // Position (3 bytes) + Normal (3 floats) + Texture Coordinates (2 floats)
+    public static final int SIZE_IN_BYTES = (POSITION_COMPONENTS * 1) + (NORMAL_COMPONENTS * GraphConstants.FLOAT_LENGTH) + (TEXT_COORD_COMPONENTS * GraphConstants.FLOAT_LENGTH);
 
     private final VkVertexInputAttributeDescription.Buffer viAttrs;
     private final VkVertexInputBindingDescription.Buffer viBindings;
@@ -25,7 +26,7 @@ public class VertexBufferStructure extends VertexInputStateInfo {
         viAttrs.get(i)
                 .binding(0)
                 .location(i)
-                .format(VK_FORMAT_R32G32B32_SFLOAT)
+                .format(VK_FORMAT_R8G8B8_SNORM)
                 .offset(0);
 
         // Normal
@@ -34,31 +35,15 @@ public class VertexBufferStructure extends VertexInputStateInfo {
                 .binding(0)
                 .location(i)
                 .format(VK_FORMAT_R32G32B32_SFLOAT)
-                .offset(POSITION_COMPONENTS * GraphConstants.FLOAT_LENGTH);
-
-        // Tangent
-        i++;
-        viAttrs.get(i)
-                .binding(0)
-                .location(i)
-                .format(VK_FORMAT_R32G32B32_SFLOAT)
-                .offset(NORMAL_COMPONENTS * GraphConstants.FLOAT_LENGTH + POSITION_COMPONENTS * GraphConstants.FLOAT_LENGTH);
-
-        // BiTangent
-        i++;
-        viAttrs.get(i)
-                .binding(0)
-                .location(i)
-                .format(VK_FORMAT_R32G32B32_SFLOAT)
-                .offset(NORMAL_COMPONENTS * GraphConstants.FLOAT_LENGTH * 2 + POSITION_COMPONENTS * GraphConstants.FLOAT_LENGTH);
+                .offset(POSITION_COMPONENTS * 1); // Offset after 3 bytes
 
         // Texture coordinates
         i++;
         viAttrs.get(i)
                 .binding(0)
-                .location(i)
+                .location(i) // This will be location 2
                 .format(VK_FORMAT_R32G32_SFLOAT)
-                .offset(NORMAL_COMPONENTS * GraphConstants.FLOAT_LENGTH * 3 + POSITION_COMPONENTS * GraphConstants.FLOAT_LENGTH);
+                .offset(POSITION_COMPONENTS * 1 + NORMAL_COMPONENTS * GraphConstants.FLOAT_LENGTH);
 
         viBindings.get(0)
                 .binding(0)

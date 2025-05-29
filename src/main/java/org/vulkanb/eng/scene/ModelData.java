@@ -67,7 +67,7 @@ public class ModelData {
         }
     }
 
-    public record MeshData(float[] positions, float[] normals, float[] tangents, float[] biTangents,
+    public record MeshData(byte[] positions, float[] normals,
                            float[] textCoords, int[] indices, int materialIdx) {
 
     }

@@ -211,23 +211,6 @@ public class ModelLoader {
         return animations;
     }
 
-    private static List<Float> processBitangents(AIMesh aiMesh, List<Float> normals) {
-        List<Float> biTangents = new ArrayList<>();
-        AIVector3D.Buffer aiBitangents = aiMesh.mBitangents();
-        while (aiBitangents != null && aiBitangents.remaining() > 0) {
-            AIVector3D aiBitangent = aiBitangents.get();
-            biTangents.add(aiBitangent.x());
-            biTangents.add(aiBitangent.y());
-            biTangents.add(aiBitangent.z());
-        }
-
-        // Assimp may not calculate tangents with models that do not have texture coordinates. Just create empty values
-        if (biTangents.isEmpty()) {
-            biTangents = new ArrayList<>(Collections.nCopies(normals.size(), 0.0f));
-        }
-        return biTangents;
-    }
-
     private static ModelData.AnimMeshData processBones(AIMesh aiMesh, List<Bone> boneList) {
         List<Integer> boneIds = new ArrayList<>();
         List<Float> weights = new ArrayList<>();
@@ -344,22 +327,32 @@ public class ModelLoader {
     private static ModelData.MeshData processMesh(AIMesh aiMesh) {
         List<Float> vertices = processVertices(aiMesh);
         List<Float> normals = processNormals(aiMesh);
-        List<Float> tangents = processTangents(aiMesh, normals);
-        List<Float> biTangents = processBitangents(aiMesh, normals);
         List<Float> textCoords = processTextCoords(aiMesh);
         List<Integer> indices = processIndices(aiMesh);
 
         // Texture coordinates may not have been populated. We need at least the empty slots
         if (textCoords.isEmpty()) {
-            int numElements = (vertices.size() / 3) * 2;
+            int numElements = (vertices.size() / 3) * 2; // This logic might need adjustment if vertices is List<Byte>
             for (int i = 0; i < numElements; i++) {
                 textCoords.add(0.0f);
             }
         }
 
         int materialIdx = aiMesh.mMaterialIndex();
-        return new ModelData.MeshData(listFloatToArray(vertices), listFloatToArray(normals), listFloatToArray(tangents),
-                listFloatToArray(biTangents), listFloatToArray(textCoords), listIntToArray(indices), materialIdx);
+        return new ModelData.MeshData(listByteToArray(vertices), listFloatToArray(normals),
+                listFloatToArray(textCoords), listIntToArray(indices), materialIdx);
+    }
+
+    private static List<Byte> processVertices(AIMesh aiMesh) {
+        List<Byte> vertices = new ArrayList<>();
+        AIVector3D.Buffer aiVertices = aiMesh.mVertices();
+        while (aiVertices.remaining() > 0) {
+            AIVector3D aiVertex = aiVertices.get();
+            vertices.add((byte) aiVertex.x());
+            vertices.add((byte) aiVertex.y());
+            vertices.add((byte) aiVertex.z());
+        }
+        return vertices;
     }
 
     private static List<Float> processNormals(AIMesh aiMesh) {
@@ -375,23 +368,6 @@ public class ModelLoader {
         return normals;
     }
 
-    private static List<Float> processTangents(AIMesh aiMesh, List<Float> normals) {
-        List<Float> tangents = new ArrayList<>();
-        AIVector3D.Buffer aiTangents = aiMesh.mTangents();
-        while (aiTangents != null && aiTangents.remaining() > 0) {
-            AIVector3D aiTangent = aiTangents.get();
-            tangents.add(aiTangent.x());
-            tangents.add(aiTangent.y());
-            tangents.add(aiTangent.z());
-        }
-
-        // Assimp may not calculate tangents with models that do not have texture coordinates. Just create empty values
-        if (tangents.isEmpty()) {
-            tangents = new ArrayList<>(Collections.nCopies(normals.size(), 0.0f));
-        }
-        return tangents;
-    }
-
     private static List<Float> processTextCoords(AIMesh aiMesh) {
         List<Float> textCoords = new ArrayList<>();
         AIVector3D.Buffer aiTextCoords = aiMesh.mTextureCoords(0);
@@ -404,16 +380,15 @@ public class ModelLoader {
         return textCoords;
     }
 
-    private static List<Float> processVertices(AIMesh aiMesh) {
-        List<Float> vertices = new ArrayList<>();
-        AIVector3D.Buffer aiVertices = aiMesh.mVertices();
-        while (aiVertices.remaining() > 0) {
-            AIVector3D aiVertex = aiVertices.get();
-            vertices.add(aiVertex.x());
-            vertices.add(aiVertex.y());
-            vertices.add(aiVertex.z());
+    // This method is now processVertices, defined above.
+
+    private static byte[] listByteToArray(List<Byte> list) {
+        int size = list != null ? list.size() : 0;
+        byte[] arr = new byte[size];
+        for (int i = 0; i < size; i++) {
+            arr[i] = list.get(i);
         }
-        return vertices;
+        return arr;
     }
 
     private static Matrix4f toMatrix(AIMatrix4x4 aiMatrix4x4) {
