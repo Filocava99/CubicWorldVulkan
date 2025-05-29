@@ -10,7 +10,7 @@ object TextureManager {
         // Basic terrain blocks
         "stone" to "stone",
         "dirt" to "dirt", 
-        "grass_side" to "grass_block_side",
+        "grass_side" to "dirt",
         "grass_top" to "grass_block_top",
         "grass_bottom" to "dirt",
         "bedrock" to "bedrock",
