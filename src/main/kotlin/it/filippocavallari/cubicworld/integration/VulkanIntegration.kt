@@ -8,8 +8,10 @@ import it.filippocavallari.cubicworld.textures.TextureRegion
 import it.filippocavallari.cubicworld.textures.TextureStitcher
 import it.filippocavallari.cubicworld.world.World
 import it.filippocavallari.cubicworld.world.chunk.Chunk
+import it.filippocavallari.cubicworld.world.chunk.CubicChunk
 import it.filippocavallari.cubicworld.integration.VulkanChunkMeshBuilder
 import it.filippocavallari.cubicworld.integration.DirectionalVulkanChunkMeshBuilder
+import it.filippocavallari.cubicworld.integration.CubicChunkMeshBuilder
 import org.joml.Vector3f
 import org.joml.Vector4f
 import org.lwjgl.vulkan.VkDevice
@@ -43,8 +45,10 @@ class VulkanIntegration {
     // Chunk mesh building and caching
     private lateinit var chunkMeshBuilder: VulkanChunkMeshBuilder
     private lateinit var directionalChunkMeshBuilder: DirectionalVulkanChunkMeshBuilder
+    private lateinit var cubicChunkMeshBuilder: CubicChunkMeshBuilder
     private val chunkMeshCache = ConcurrentHashMap<String, ModelData>()
     private val directionalChunkMeshCache = ConcurrentHashMap<String, Map<FaceDirection, ModelData>>()
+    private val cubicChunkMeshCache = ConcurrentHashMap<String, ModelData>()
     
     // Track loaded chunks to manage descriptor pool
     private val loadedChunks = ConcurrentHashMap<String, String>() // chunkId -> modelId
@@ -79,6 +83,7 @@ class VulkanIntegration {
         // Initialize chunk mesh builder
         chunkMeshBuilder = VulkanChunkMeshBuilder(textureStitcher)
         directionalChunkMeshBuilder = DirectionalVulkanChunkMeshBuilder(textureStitcher)
+        cubicChunkMeshBuilder = CubicChunkMeshBuilder(textureStitcher)
         
         // Skip model loading entirely for now
         println("VulkanIntegration initialized with minimal resources")
@@ -848,6 +853,128 @@ class VulkanIntegration {
             
             println("Directional culling stats: $visibleFaces/$totalFaces faces visible (${String.format("%.1f", culledPercentage)}% culled)")
         }
+    }
+    
+    /**
+     * Create a mesh for a cubic chunk and add it to the scene
+     * 
+     * @param chunk The cubic chunk to create a mesh for
+     * @return The entity ID of the created mesh in the scene
+     */
+    @Synchronized
+    fun createCubicChunkMesh(chunk: CubicChunk): String {
+        println("Building mesh for cubic chunk at (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z})")
+        
+        // Skip empty chunks
+        if (chunk.isEmpty()) {
+            println("Skipping empty cubic chunk")
+            return ""
+        }
+        
+        // Check if we can load more chunks
+        if (!canLoadMoreChunks()) {
+            println("Chunk limit reached, unloading old chunks")
+            unloadOldestChunks(50)
+        }
+        
+        // Generate mesh from the cubic chunk data
+        val modelData = if (useDirectionalCulling) {
+            // For now, use single mesh for cubic chunks
+            // TODO: Implement directional meshes for cubic chunks
+            cubicChunkMeshBuilder.buildMesh(chunk)
+        } else {
+            cubicChunkMeshBuilder.buildMesh(chunk)
+        }
+        
+        // Skip if no mesh data (empty chunk)
+        if (modelData.meshDataList.isEmpty() || modelData.meshDataList[0].positions.isEmpty()) {
+            println("Skipping cubic chunk with no visible faces")
+            return ""
+        }
+        
+        println("Cubic mesh generated with ${modelData.meshDataList[0].positions.size / 3} vertices")
+        
+        // Get a unique ID for this chunk
+        val chunkId = getCubicChunkId(chunk)
+        
+        // Check if this chunk mesh is already loaded
+        val existingMesh = cubicChunkMeshCache[chunkId]
+        if (existingMesh != null && !chunk.isDirty() && existingMesh.modelId == modelData.modelId) {
+            println("Cubic chunk $chunkId is already loaded with the same mesh. Skipping.")
+            return chunkId
+        }
+        
+        // Store the mesh for future reference
+        cubicChunkMeshCache[chunkId] = modelData
+        
+        // Check if entity already exists
+        val entities = vulkanScene.getEntitiesByModelId(modelData.modelId)
+        val existingEntity = entities?.find { it.getId() == chunkId }
+        if (existingEntity != null) {
+            vulkanScene.removeEntity(existingEntity)
+            println("Removed existing entity for cubic chunk $chunkId")
+        }
+        
+        // Check if this model was already loaded to the renderer
+        val modelAlreadyLoaded = loadedModels.containsKey(modelData.modelId)
+        
+        // Load model to renderer only if not already loaded
+        if (!modelAlreadyLoaded) {
+            try {
+                println("Loading cubic chunk with ${modelData.meshDataList[0].positions.size / 3} vertices")
+                vulkanRender.loadModels(listOf(modelData))
+                
+                loadedModels[modelData.modelId] = true
+                loadedChunks[chunkId] = modelData.modelId
+                synchronized(chunkLoadOrder) {
+                    chunkLoadOrder.add(chunkId)
+                }
+                modelRefCount[modelData.modelId] = 1
+                
+                println("Cubic chunks loaded: ${loadedChunks.size}/$MAX_LOADED_CHUNKS")
+            } catch (e: Exception) {
+                println("ERROR: Failed to load cubic chunk model: ${e.message}")
+                if (e.message?.contains("-1000069000") == true || 
+                    e.message?.contains("descriptor set") == true) {
+                    println("Descriptor pool exhausted!")
+                    throw RuntimeException("Descriptor pool exhausted", e)
+                }
+                throw e
+            }
+        } else {
+            println("Model ${modelData.modelId} already loaded to renderer, reusing")
+            loadedChunks[chunkId] = modelData.modelId
+            synchronized(chunkLoadOrder) {
+                chunkLoadOrder.add(chunkId)
+            }
+            modelRefCount[modelData.modelId] = (modelRefCount[modelData.modelId] ?: 0) + 1
+        }
+        
+        // Create entity for this chunk at origin since mesh vertices are already in world coordinates
+        val entity = Entity(chunkId, modelData.modelId, Vector3f(0.0f, 0.0f, 0.0f))
+        
+        println("\n=== CUBIC CHUNK POSITIONING DEBUG ===")
+        println("Chunk coordinate: (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z})")
+        println("World bounds: (${chunk.getWorldX()}, ${chunk.getWorldY()}, ${chunk.getWorldZ()}) to " +
+                "(${chunk.getWorldX() + 15}, ${chunk.getWorldY() + 15}, ${chunk.getWorldZ() + 15})")
+        println("Entity position: (0, 0, 0) - no additional offset needed")
+        println("=====================================\n")
+        
+        // Add entity to scene
+        vulkanScene.addEntity(entity)
+        println("Added entity for cubic chunk $chunkId with model ID ${modelData.modelId}")
+        
+        // Mark chunk as clean
+        chunk.markClean()
+        
+        return chunkId
+    }
+    
+    /**
+     * Get a unique ID for a cubic chunk
+     */
+    private fun getCubicChunkId(chunk: CubicChunk): String {
+        return "cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}"
     }
     
     /**

@@ -6,8 +6,11 @@ import it.filippocavallari.cubicworld.models.ModelManager
 import it.filippocavallari.cubicworld.textures.TextureAtlasLoader
 import it.filippocavallari.cubicworld.textures.TextureStitcher
 import it.filippocavallari.cubicworld.world.World
+import it.filippocavallari.cubicworld.world.CubicWorld
 import it.filippocavallari.cubicworld.world.ChunkManager
+import it.filippocavallari.cubicworld.world.CubicChunkManager
 import it.filippocavallari.cubicworld.world.chunk.Chunk
+import it.filippocavallari.cubicworld.world.chunk.CubicChunk
 import it.filippocavallari.cubicworld.world.generators.BiodiverseWorldGenerator
 import it.filippocavallari.cubicworld.world.generators.WorldGeneratorRegistry
 import it.filippocavallari.cubicworld.data.block.BlockType
@@ -35,9 +38,14 @@ class CubicWorldEngine : IAppLogic {
     
     // Game world
     private lateinit var gameWorld: World
+    private lateinit var cubicWorld: CubicWorld
     
     // Chunk management system
     private lateinit var chunkManager: ChunkManager
+    private lateinit var cubicChunkManager: CubicChunkManager
+    
+    // Flag to use cubic chunks
+    private val useCubicChunks = true
     
     // Vulkan integration component
     private lateinit var vulkanIntegration: VulkanIntegration
@@ -50,6 +58,7 @@ class CubicWorldEngine : IAppLogic {
         private const val MOUSE_SENSITIVITY = 0.1f
         private const val MOVEMENT_SPEED = 0.08f  // Increased movement speed for navigating the larger world
         private const val WORLD_RENDER_DISTANCE = 2 // 4x4 grid (2 chunks in each direction from center)
+        private const val CUBIC_RENDER_DISTANCE = 8 // Cubic chunks can render further due to smaller size
         
         // Mouse cursor state
         private var mouseCaptured = true
@@ -97,13 +106,41 @@ class CubicWorldEngine : IAppLogic {
             val worldGenerator = WorldGeneratorRegistry.create("biodiverse", seed)
             
             // Create and initialize world
-            gameWorld = World(worldGenerator)
-            
-            // Connect world to Vulkan integration
-            vulkanIntegration.connectWorld(gameWorld)
-            
-            // Initialize the chunk manager with the new 4x4 dynamic loading system
-            chunkManager = ChunkManager(gameWorld, vulkanIntegration)
+            if (useCubicChunks) {
+                println("\n=== USING CUBIC CHUNKS SYSTEM ===")
+                println("Chunk size: 16x16x16 blocks")
+                println("Memory savings: ~98% compared to traditional chunks")
+                println("Features: Infinite height, better occlusion culling")
+                println("=================================\n")
+                
+                cubicWorld = CubicWorld(worldGenerator)
+                
+                // Create cubic chunk manager
+                cubicChunkManager = CubicChunkManager(cubicWorld, vulkanIntegration)
+                
+                // Add listener to Vulkan integration
+                cubicWorld.addChunkListener(object : CubicWorld.ChunkListener {
+                    override fun onChunkLoaded(chunk: CubicChunk) {
+                        // Handled by chunk manager
+                    }
+                    
+                    override fun onChunkUnloaded(chunk: CubicChunk) {
+                        // Handled by chunk manager
+                    }
+                    
+                    override fun onChunkUpdated(chunk: CubicChunk) {
+                        vulkanIntegration.createCubicChunkMesh(chunk)
+                    }
+                })
+            } else {
+                gameWorld = World(worldGenerator)
+                
+                // Connect world to Vulkan integration
+                vulkanIntegration.connectWorld(gameWorld)
+                
+                // Initialize the chunk manager with the new 4x4 dynamic loading system
+                chunkManager = ChunkManager(gameWorld, vulkanIntegration)
+            }
             
             // Setup camera
             setupCamera(scene.camera)
@@ -118,23 +155,43 @@ class CubicWorldEngine : IAppLogic {
             // Center the cursor
             GLFW.glfwSetCursorPos(windowHandle, (window.width / 2).toDouble(), (window.height / 2).toDouble())
             
-            // Initialize the enhanced 4x4 chunk loading system
-            println("Initializing enhanced 4x4 dynamic chunk loading system")
-            println("This system will load chunks in a circular pattern and dynamically adjust as you move")
-            
-            // Initialize the chunk manager at spawn point (0, 0)
-            chunkManager.initialize(0, 0)
-            
-            println("\n=== ENHANCED CHUNK LOADING SYSTEM ===\n")
-            println("Features:")
-            println("  ✓ 4x4 chunk grid (${WORLD_RENDER_DISTANCE * 2 + 1}x${WORLD_RENDER_DISTANCE * 2 + 1} total area)")
-            println("  ✓ Circular loading pattern (center-out priority)")
-            println("  ✓ Dynamic loading when approaching chunk borders")
-            println("  ✓ Automatic unloading of distant chunks")
-            println("  ✓ Memory-efficient chunk management")
-            println("")
-            println("Initial chunks loaded: ${chunkManager.getLoadedChunkInfo()}")
-            println("=====================================\n")
+            // Initialize the enhanced chunk loading system
+            if (useCubicChunks) {
+                println("Initializing cubic chunk loading system")
+                println("This system uses 16x16x16 chunks for massive memory savings")
+                
+                // Initialize at spawn point with good starting height
+                cubicChunkManager.initialize(0f, 64f, 0f)
+                
+                println("\n=== CUBIC CHUNK LOADING SYSTEM ===")
+                println("Features:")
+                println("  ✓ 16x16x16 cubic chunks (vs 16x256x16 traditional)")
+                println("  ✓ Spherical loading pattern")
+                println("  ✓ ${CubicChunkManager.HORIZONTAL_RENDER_DISTANCE} chunk radius horizontally")
+                println("  ✓ ${CubicChunkManager.VERTICAL_RENDER_DISTANCE} chunk radius vertically")
+                println("  ✓ Automatic empty chunk culling")
+                println("  ✓ Up to ${CubicChunkManager.MAX_LOADED_CHUNKS} chunks loaded simultaneously")
+                println("")
+                println("Initial chunks loaded: ${cubicChunkManager.getLoadedChunkInfo()}")
+                println("===================================\n")
+            } else {
+                println("Initializing enhanced 4x4 dynamic chunk loading system")
+                println("This system will load chunks in a circular pattern and dynamically adjust as you move")
+                
+                // Initialize the chunk manager at spawn point (0, 0)
+                chunkManager.initialize(0, 0)
+                
+                println("\n=== ENHANCED CHUNK LOADING SYSTEM ===\n")
+                println("Features:")
+                println("  ✓ 4x4 chunk grid (${WORLD_RENDER_DISTANCE * 2 + 1}x${WORLD_RENDER_DISTANCE * 2 + 1} total area)")
+                println("  ✓ Circular loading pattern (center-out priority)")
+                println("  ✓ Dynamic loading when approaching chunk borders")
+                println("  ✓ Automatic unloading of distant chunks")
+                println("  ✓ Memory-efficient chunk management")
+                println("")
+                println("Initial chunks loaded: ${chunkManager.getLoadedChunkInfo()}")
+                println("=====================================\n")
+            }
             
             // Initialize is complete
             println("CubicWorld Engine initialized successfully")
@@ -273,33 +330,59 @@ class CubicWorldEngine : IAppLogic {
      * Setup the camera
      */
     private fun setupCamera(camera: Camera) {
-        // Position the camera at the center of the 4x4 grid, elevated for a better view
-        // Center of the grid is at (0, 0) in chunk coordinates, which translates to (0, 0) in block coordinates
-        // Set height to see the entire 4x4 chunk grid clearly
-        camera.position.set(8.0f, 50.0f, 8.0f) // Slightly offset to see the grid better
-        // Look down at a moderate angle for a good overview
-        camera.setRotation(1.0f, 0.0f)
-        
-        println("\n=== CAMERA SETUP & EXPECTED LAYOUT ===")
-        println("Camera positioned at: (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
-        println("Looking down at 4x4 dynamic chunk grid")
-        println("")
-        println("Dynamic chunk layout (4x4 grid around player):")
-        println("  Chunks will load/unload automatically as you move")
-        println("  Total coverage: 4x4 chunks = 64x64 blocks")
-        println("  Load distance: ${WORLD_RENDER_DISTANCE} chunks in each direction")
-        println("  Circular loading pattern prioritizes closest chunks")
-        println("")
-        println("Movement controls (FPS-style):")
-        println("  W: Move forward (based on horizontal look direction)")
-        println("  S: Move backward (based on horizontal look direction)")
-        println("  A: Strafe left")
-        println("  D: Strafe right")
-        println("  Space: Move up (Y+)")
-        println("  Shift: Move down (Y-)")
-        println("  Mouse: Look around")
-        println("  ESC: Toggle mouse capture")
-        println("========================================\n")
+        if (useCubicChunks) {
+            // Position camera at a good starting point for cubic chunks
+            camera.position.set(8.0f, 72.0f, 8.0f) // Start at a reasonable height
+            camera.setRotation(0.5f, 0.0f) // Look slightly down
+            
+            println("\n=== CAMERA SETUP FOR CUBIC CHUNKS ===")
+            println("Camera positioned at: (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
+            println("Cubic chunk world extends infinitely in all directions")
+            println("")
+            println("Cubic chunk layout:")
+            println("  Each chunk: 16x16x16 blocks")
+            println("  Horizontal render distance: ${CubicChunkManager.HORIZONTAL_RENDER_DISTANCE} chunks")
+            println("  Vertical render distance: ${CubicChunkManager.VERTICAL_RENDER_DISTANCE} chunks")
+            println("  Total potential chunks: ~${(CubicChunkManager.HORIZONTAL_RENDER_DISTANCE * 2 + 1) * 
+                      (CubicChunkManager.HORIZONTAL_RENDER_DISTANCE * 2 + 1) * 
+                      (CubicChunkManager.VERTICAL_RENDER_DISTANCE * 2 + 1)}")
+            println("")
+            println("Movement controls (FPS-style):")
+            println("  W: Move forward")
+            println("  S: Move backward")
+            println("  A: Strafe left")
+            println("  D: Strafe right")
+            println("  Space: Move up")
+            println("  Shift: Move down")
+            println("  Mouse: Look around")
+            println("  ESC: Toggle mouse capture")
+            println("=====================================\n")
+        } else {
+            // Original camera setup for traditional chunks
+            camera.position.set(8.0f, 50.0f, 8.0f)
+            camera.setRotation(1.0f, 0.0f)
+            
+            println("\n=== CAMERA SETUP & EXPECTED LAYOUT ===")
+            println("Camera positioned at: (${camera.position.x}, ${camera.position.y}, ${camera.position.z})")
+            println("Looking down at 4x4 dynamic chunk grid")
+            println("")
+            println("Dynamic chunk layout (4x4 grid around player):")
+            println("  Chunks will load/unload automatically as you move")
+            println("  Total coverage: 4x4 chunks = 64x64 blocks")
+            println("  Load distance: ${WORLD_RENDER_DISTANCE} chunks in each direction")
+            println("  Circular loading pattern prioritizes closest chunks")
+            println("")
+            println("Movement controls (FPS-style):")
+            println("  W: Move forward (based on horizontal look direction)")
+            println("  S: Move backward (based on horizontal look direction)")
+            println("  A: Strafe left")
+            println("  D: Strafe right")
+            println("  Space: Move up (Y+)")
+            println("  Shift: Move down (Y-)")
+            println("  Mouse: Look around")
+            println("  ESC: Toggle mouse capture")
+            println("========================================\n")
+        }
     }
     
     /**
@@ -399,23 +482,42 @@ class CubicWorldEngine : IAppLogic {
      * Update game logic
      */
     override fun update(window: Window, scene: Scene, diffTimeMillis: Long) {
-        // Update the world
-        gameWorld.updateChunks(diffTimeMillis / 1000.0f)
-        
-        // Update chunk manager with current player position for dynamic loading
         val camera = scene.camera
-        chunkManager.updatePlayerPosition(camera.position.x, camera.position.z)
         
-        // Update directional chunk visibility based on camera direction
-        val cameraForward = Vector3f()
-        camera.getViewMatrix().positiveZ(cameraForward).negate() // Get forward direction from view matrix
-        vulkanIntegration.updateDirectionalChunkVisibility(cameraForward, camera.position)
-        
-        // Optional: Print debug info periodically (every 5 seconds)
-        if (System.currentTimeMillis() % 5000 < 50) { // Roughly every 5 seconds
-            val playerChunkX = Chunk.worldToChunk(camera.position.x.toInt())
-            val playerChunkZ = Chunk.worldToChunk(camera.position.z.toInt())
-            println("Player at world (${camera.position.x.toInt()}, ${camera.position.z.toInt()}) = chunk ($playerChunkX, $playerChunkZ). ${chunkManager.getLoadedChunkInfo()}")
+        if (useCubicChunks) {
+            // Update cubic chunk manager with current player position
+            cubicChunkManager.updatePlayerPosition(
+                camera.position.x, 
+                camera.position.y, 
+                camera.position.z
+            )
+            
+            // Optional: Print debug info periodically (every 5 seconds)
+            if (System.currentTimeMillis() % 5000 < 50) {
+                val playerChunkX = CubicChunk.worldToChunk(camera.position.x.toInt())
+                val playerChunkY = CubicChunk.worldToChunk(camera.position.y.toInt())
+                val playerChunkZ = CubicChunk.worldToChunk(camera.position.z.toInt())
+                println("Player at world (${camera.position.x.toInt()}, ${camera.position.y.toInt()}, ${camera.position.z.toInt()}) = chunk ($playerChunkX, $playerChunkY, $playerChunkZ)")
+                println(cubicChunkManager.getLoadedChunkInfo())
+            }
+        } else {
+            // Update the world
+            gameWorld.updateChunks(diffTimeMillis / 1000.0f)
+            
+            // Update chunk manager with current player position for dynamic loading
+            chunkManager.updatePlayerPosition(camera.position.x, camera.position.z)
+            
+            // Update directional chunk visibility based on camera direction
+            val cameraForward = Vector3f()
+            camera.getViewMatrix().positiveZ(cameraForward).negate() // Get forward direction from view matrix
+            vulkanIntegration.updateDirectionalChunkVisibility(cameraForward, camera.position)
+            
+            // Optional: Print debug info periodically (every 5 seconds)
+            if (System.currentTimeMillis() % 5000 < 50) {
+                val playerChunkX = Chunk.worldToChunk(camera.position.x.toInt())
+                val playerChunkZ = Chunk.worldToChunk(camera.position.z.toInt())
+                println("Player at world (${camera.position.x.toInt()}, ${camera.position.z.toInt()}) = chunk ($playerChunkX, $playerChunkZ). ${chunkManager.getLoadedChunkInfo()}")
+            }
         }
     }
     
@@ -425,19 +527,31 @@ class CubicWorldEngine : IAppLogic {
     override fun cleanup() {
         println("Cleaning up CubicWorld Engine")
         
-        // Clean up chunk manager
-        if (::chunkManager.isInitialized) {
-            chunkManager.cleanup()
+        if (useCubicChunks) {
+            // Clean up cubic chunk manager
+            if (::cubicChunkManager.isInitialized) {
+                cubicChunkManager.cleanup()
+            }
+            
+            // Clean up cubic world resources
+            if (::cubicWorld.isInitialized) {
+                cubicWorld.cleanup()
+            }
+        } else {
+            // Clean up chunk manager
+            if (::chunkManager.isInitialized) {
+                chunkManager.cleanup()
+            }
+            
+            // Clean up world resources
+            if (::gameWorld.isInitialized) {
+                gameWorld.cleanup()
+            }
         }
         
         // Clean up Vulkan integration
         if (::vulkanIntegration.isInitialized) {
             vulkanIntegration.cleanup()
-        }
-        
-        // Clean up world resources
-        if (::gameWorld.isInitialized) {
-            gameWorld.cleanup()
         }
     }
 }
