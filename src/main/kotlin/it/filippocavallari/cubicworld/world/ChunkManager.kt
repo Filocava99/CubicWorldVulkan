@@ -118,28 +118,39 @@ class ChunkManager(
     private fun loadChunksCircular(centerChunkX: Int, centerChunkZ: Int) {
         println("Loading chunks in circular pattern around ($centerChunkX, $centerChunkZ)")
         
-        // Generate list of chunk positions in 4x4 grid
+        // Generate list of chunk positions in spiral pattern
         val chunksToLoad = mutableListOf<Triple<Int, Int, Double>>()
         
-        for (dx in -RENDER_DISTANCE..RENDER_DISTANCE) {
-            for (dz in -RENDER_DISTANCE..RENDER_DISTANCE) {
-                val chunkX = centerChunkX + dx
-                val chunkZ = centerChunkZ + dz
-                val distance = getDistanceFromCenter(dx, dz)
-                
-                // Only load if within render distance and not already loaded
-                if (distance <= RENDER_DISTANCE) {
-                    chunksToLoad.add(Triple(chunkX, chunkZ, distance))
+        // Create a proper spiral pattern starting from center
+        val maxRadius = RENDER_DISTANCE
+        for (radius in 0..maxRadius) {
+            // Start with center chunk (radius 0)
+            if (radius == 0) {
+                val distance = getDistanceFromCenter(0, 0)
+                chunksToLoad.add(Triple(centerChunkX, centerChunkZ, distance))
+            } else {
+                // Add chunks at current radius in spiral order
+                for (dx in -radius..radius) {
+                    for (dz in -radius..radius) {
+                        val distance = getDistanceFromCenter(dx, dz)
+                        
+                        // Only add chunks that are exactly at current radius
+                        if (distance <= radius && distance > radius - 1) {
+                            val chunkX = centerChunkX + dx
+                            val chunkZ = centerChunkZ + dz
+                            chunksToLoad.add(Triple(chunkX, chunkZ, distance))
+                        }
+                    }
                 }
             }
         }
         
-        // Sort by distance from center (circular loading)
+        // Sort by distance from center (ensures closest chunks load first)
         chunksToLoad.sortBy { it.third }
         
-        println("Found ${chunksToLoad.size} chunks to load in 4x4 grid")
+        println("Found ${chunksToLoad.size} chunks to load in spiral pattern")
         
-        // Load chunks in order of distance from center
+        // Load chunks in order of distance from center (spiral pattern)
         var chunksLoaded = 0
         for ((chunkX, chunkZ, distance) in chunksToLoad) {
             val chunkPos = Vector2i(chunkX, chunkZ)
@@ -152,6 +163,8 @@ class ChunkManager(
             // Load the chunk
             loadChunkAsync(chunkX, chunkZ)
             chunksLoaded++
+            
+            println("Loading chunk at ($chunkX, $chunkZ) - distance: ${"%.2f".format(distance)}")
             
             // Limit chunks loaded per update for performance
             if (chunksLoaded >= MAX_CHUNKS_PER_FRAME) {

@@ -41,7 +41,7 @@ class CubicChunkManager(
         val priority: Int
     ) : Comparable<ChunkLoadRequest> {
         override fun compareTo(other: ChunkLoadRequest): Int {
-            return priority.compareTo(other.priority) // Higher priority loads first
+            return other.priority.compareTo(priority) // Higher priority loads first (reverse order)
         }
     }
     
@@ -124,7 +124,10 @@ class CubicChunkManager(
             loadQueue.clear()
         }
         
-        // Generate list of chunk positions in spherical pattern
+        // Generate list of chunk positions in spherical pattern, starting from center
+        val chunksToProcess = mutableListOf<Pair<Vector3i, Double>>()
+        
+        // Generate all chunks within render distance
         for (dy in -VERTICAL_RENDER_DISTANCE..VERTICAL_RENDER_DISTANCE) {
             for (dx in -HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE) {
                 for (dz in -HORIZONTAL_RENDER_DISTANCE..HORIZONTAL_RENDER_DISTANCE) {
@@ -151,23 +154,35 @@ class CubicChunkManager(
                             continue
                         }
                         
-                        // Calculate priority (closer chunks have higher priority)
-                        val priority = (1000 - (distance * 100)).toInt()
-                        
-                        if (immediate && distance <= 2) {
-                            // Load nearby chunks immediately during initialization
-                            loadChunkImmediate(chunkX, chunkY, chunkZ)
-                        } else {
-                            // Add to load queue
-                            loadQueue.offer(ChunkLoadRequest(chunkPos, priority))
-                        }
+                        chunksToProcess.add(Pair(chunkPos, distance))
                     }
                 }
             }
         }
         
+        // Sort by distance to ensure closest chunks are processed first
+        chunksToProcess.sortBy { it.second }
+        
+        println("Processing ${chunksToProcess.size} chunks in spherical pattern")
+        
+        // Process chunks in order of distance from center
+        for ((chunkPos, distance) in chunksToProcess) {
+            // Calculate priority (closer chunks have higher priority)
+            val priority = (10000 - (distance * 100)).toInt()
+            
+            if (immediate && distance <= 2) {
+                // Load nearby chunks immediately during initialization
+                loadChunkImmediate(chunkPos.x, chunkPos.y, chunkPos.z)
+            } else {
+                // Add to load queue with proper priority
+                loadQueue.offer(ChunkLoadRequest(chunkPos, priority))
+            }
+        }
+        
         if (immediate) {
             println("Initial chunk loading complete: ${loadedChunks.size} chunks loaded")
+        } else {
+            println("Added ${chunksToProcess.size} chunks to load queue")
         }
     }
     
