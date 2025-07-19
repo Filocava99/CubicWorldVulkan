@@ -8,6 +8,7 @@ import org.vulkanb.eng.graph.geometry.GeometryRenderActivity;
 import org.vulkanb.eng.graph.gui.GuiRenderActivity;
 import org.vulkanb.eng.graph.lighting.LightingRenderActivity;
 import org.vulkanb.eng.graph.shadows.ShadowRenderActivity;
+import org.vulkanb.eng.graph.skybox.SkyboxRenderActivity;
 import org.vulkanb.eng.graph.vk.Queue;
 import org.vulkanb.eng.graph.vk.*;
 import org.vulkanb.eng.scene.*;
@@ -31,6 +32,7 @@ public class Render {
     private final PipelineCache pipelineCache;
     private final Queue.PresentQueue presentQueue;
     private final ShadowRenderActivity shadowRenderActivity;
+    private final SkyboxRenderActivity skyboxRenderActivity;
     private final Surface surface;
     private final TextureCache textureCache;
     private final List<VulkanModel> vulkanModels;
@@ -59,6 +61,8 @@ public class Render {
         List<Attachment> attachments = new ArrayList<>(geometryRenderActivity.getAttachments());
         attachments.add(shadowRenderActivity.getDepthAttachment());
         lightingRenderActivity = new LightingRenderActivity(swapChain, commandPool, pipelineCache, attachments, scene);
+        skyboxRenderActivity = new SkyboxRenderActivity(swapChain, pipelineCache, scene, 
+                geometryRenderActivity.getGeometryFrameBuffer().getRenderPass().getVkRenderPass(), graphQueue);
         animationComputeActivity = new AnimationComputeActivity(commandPool, pipelineCache);
         guiRenderActivity = new GuiRenderActivity(swapChain, commandPool, graphQueue, pipelineCache,
                 lightingRenderActivity.getLightingFrameBuffer().getLightingRenderPass().getVkRenderPass());
@@ -88,6 +92,7 @@ public class Render {
         lightingRenderActivity.cleanup();
         animationComputeActivity.cleanup();
         shadowRenderActivity.cleanup();
+        skyboxRenderActivity.cleanup();
         geometryRenderActivity.cleanup();
         Arrays.asList(commandBuffers).forEach(CommandBuffer::cleanup);
         Arrays.asList(fences).forEach(Fence::cleanup);
@@ -125,7 +130,7 @@ public class Render {
         for (CommandBuffer commandBuffer : commandBuffers) {
             commandBuffer.reset();
             commandBuffer.beginRecording();
-            geometryRenderActivity.recordCommandBuffer(commandBuffer, globalBuffers, idx);
+            geometryRenderActivity.recordCommandBuffer(commandBuffer, globalBuffers, idx, skyboxRenderActivity);
             shadowRenderActivity.recordCommandBuffer(commandBuffer, globalBuffers, idx);
             commandBuffer.endRecording();
             idx++;
@@ -159,6 +164,7 @@ public class Render {
         }
 
         CommandBuffer commandBuffer = acquireCurrentCommandBuffer();
+        skyboxRenderActivity.render();
         geometryRenderActivity.render();
         shadowRenderActivity.render();
         submitSceneCommand(graphQueue, commandBuffer);
@@ -186,6 +192,7 @@ public class Render {
                 presentQueue, new Queue[]{graphQueue});
         geometryRenderActivity.resize(swapChain);
         shadowRenderActivity.resize(swapChain);
+        skyboxRenderActivity.resize(swapChain);
         recordCommands();
         List<Attachment> attachments = new ArrayList<>(geometryRenderActivity.getAttachments());
         attachments.add(shadowRenderActivity.getDepthAttachment());

@@ -139,6 +139,10 @@ public class GeometryRenderActivity {
         return geometryFrameBuffer.geometryAttachments().getAttachments();
     }
 
+    public GeometryFrameBuffer getGeometryFrameBuffer() {
+        return geometryFrameBuffer;
+    }
+
     public void loadModels(TextureCache textureCache) {
         device.waitIdle();
         // Size of the descriptor is setup in the layout, we need to fill up the texture list
@@ -155,7 +159,7 @@ public class GeometryRenderActivity {
                 textureSampler, 0);
     }
 
-    public void recordCommandBuffer(CommandBuffer commandBuffer, GlobalBuffers globalBuffers, int idx) {
+    public void recordCommandBuffer(CommandBuffer commandBuffer, GlobalBuffers globalBuffers, int idx, org.vulkanb.eng.graph.skybox.SkyboxRenderActivity skyboxRenderActivity) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkExtent2D swapChainExtent = swapChain.getSwapChainExtent();
             int width = swapChainExtent.width();
@@ -245,6 +249,9 @@ public class GeometryRenderActivity {
                 vkCmdDrawIndexedIndirect(cmdHandle, animIndirectBuffer.getBuffer(), 0, globalBuffers.getNumAnimIndirectCommands(),
                         GlobalBuffers.IND_COMMAND_STRIDE);
             }
+
+            // Render skybox before ending render pass
+            skyboxRenderActivity.recordCommandBuffer(commandBuffer, idx);
 
             vkCmdEndRenderPass(cmdHandle);
         }

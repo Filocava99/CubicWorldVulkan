@@ -1,6 +1,7 @@
 plugins {
     id("java") // Keep this for now
     kotlin("jvm") version "1.9.0"
+    application
 }
 
 group = "it.filippocavallari"
@@ -97,9 +98,11 @@ tasks.register("createKotlinDirs") {
     }
 }
 
-// Skip Java compilation entirely
+// Configure Java compilation
 tasks.named<JavaCompile>("compileJava") {
     enabled = true
+    targetCompatibility = "17"
+    sourceCompatibility = "17"
 }
 
 tasks.named<JavaCompile>("compileTestJava") {
@@ -110,10 +113,21 @@ tasks.named<JavaCompile>("compileTestJava") {
 tasks.compileKotlin {
     dependsOn("createKotlinDirs")
     kotlinOptions {
-        jvmTarget = "18"
+        jvmTarget = "17"
+    }
+}
+
+tasks.compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "17"
     }
 }
 
 tasks.processResources {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+// Configure the application plugin
+application {
+    mainClass.set("it.filippocavallari.cubicworld.MainKt")
 }
