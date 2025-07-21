@@ -29,12 +29,13 @@ vec2 mapCubeToTexture(vec3 coords) {
         // Y face (top or bottom)
         if (coords.y > 0.0) {
             // +Y face (top) - position (1, 0)
-            uv = vec2(coords.x, -coords.z);
+            uv = vec2(coords.x / absCoords.y, coords.z / absCoords.y);
             uv = (uv + 1.0) * 0.5;
+            uv = vec2(1.0 - uv.y, uv.x);  // rotate +Y face UV 270°
             finalUV = vec2((1.0 + uv.x) * faceWidth, uv.y * faceHeight);
         } else {
             // -Y face (bottom) - position (0, 0)
-            uv = vec2(coords.x, coords.z);
+            uv = vec2(coords.x / absCoords.y, coords.z / absCoords.y);
             uv = (uv + 1.0) * 0.5;
             finalUV = vec2(uv.x * faceWidth, uv.y * faceHeight);
         }
@@ -72,6 +73,7 @@ vec2 mapCubeToTexture(vec3 coords) {
 void main() {
     vec2 texCoords = mapCubeToTexture(normalize(inTexCoords));
     vec4 skyboxColor = texture(skyboxSampler, texCoords);
+    skyboxColor = clamp(skyboxColor * 1.5, 0.0, 1.0);  // increase skybox brightness
 
     // Overlay colored marker squares on side faces
     vec2 faceUV = fract(texCoords * vec2(3.0, 2.0));
