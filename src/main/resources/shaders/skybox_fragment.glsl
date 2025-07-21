@@ -7,6 +7,7 @@ layout(location = 1) out vec4 outNormal;
 layout(location = 2) out vec4 outPBR;
 
 layout(set = 2, binding = 0) uniform sampler2D skyboxSampler;
+const bool debugMarkers = false; // toggle colored debug squares
 
 // Skybox texture layout:
 // +----+----+----+
@@ -73,27 +74,29 @@ vec2 mapCubeToTexture(vec3 coords) {
 void main() {
     vec2 texCoords = mapCubeToTexture(normalize(inTexCoords));
     vec4 skyboxColor = texture(skyboxSampler, texCoords);
-    skyboxColor = clamp(skyboxColor * 1.5, 0.0, 1.0);  // increase skybox brightness
+    skyboxColor = clamp(skyboxColor * 1.5, 0.0, 1.0);
 
-    // Overlay colored marker squares on side faces
-    vec2 faceUV = fract(texCoords * vec2(3.0, 2.0));
-    ivec2 cell = ivec2(floor(texCoords * vec2(3.0, 2.0)));
-    float markerSize = 0.1;
-    bool inMarker = faceUV.x > 0.5 - markerSize * 0.5 && faceUV.x < 0.5 + markerSize * 0.5
-                  && faceUV.y > 0.5 - markerSize * 0.5 && faceUV.y < 0.5 + markerSize * 0.5;
-    if (inMarker) {
-        if (cell.y == 1 && cell.x == 0) {
-            // +Z face (north) - red
-            skyboxColor = vec4(1.0, 0.0, 0.0, 1.0);
-        } else if (cell.y == 1 && cell.x == 1) {
-            // -Z face (east) - green
-            skyboxColor = vec4(0.0, 1.0, 0.0, 1.0);
-        } else if (cell.y == 1 && cell.x == 2) {
-            // +X face (south) - blue
-            skyboxColor = vec4(0.0, 0.0, 1.0, 1.0);
-        } else if (cell.y == 0 && cell.x == 2) {
-            // -X face (west) - yellow
-            skyboxColor = vec4(1.0, 1.0, 0.0, 1.0);
+    if (debugMarkers) {
+        // Overlay colored marker squares on side faces
+        vec2 faceUV = fract(texCoords * vec2(3.0, 2.0));
+        ivec2 cell = ivec2(floor(texCoords * vec2(3.0, 2.0)));
+        float markerSize = 0.1;
+        bool inMarker = faceUV.x > 0.5 - markerSize * 0.5 && faceUV.x < 0.5 + markerSize * 0.5
+                      && faceUV.y > 0.5 - markerSize * 0.5 && faceUV.y < 0.5 + markerSize * 0.5;
+        if (inMarker) {
+            if (cell.y == 1 && cell.x == 0) {
+                // +Z face (north) - red
+                skyboxColor = vec4(1.0, 0.0, 0.0, 1.0);
+            } else if (cell.y == 1 && cell.x == 1) {
+                // -Z face (east) - green
+                skyboxColor = vec4(0.0, 1.0, 0.0, 1.0);
+            } else if (cell.y == 1 && cell.x == 2) {
+                // +X face (south) - blue
+                skyboxColor = vec4(0.0, 0.0, 1.0, 1.0);
+            } else if (cell.y == 0 && cell.x == 2) {
+                // -X face (west) - yellow
+                skyboxColor = vec4(1.0, 1.0, 0.0, 1.0);
+            }
         }
     }
 
