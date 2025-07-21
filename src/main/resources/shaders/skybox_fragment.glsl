@@ -39,12 +39,12 @@ vec2 mapCubeToTexture(vec3 coords) {
             finalUV = vec2(uv.x * faceWidth, uv.y * faceHeight);
         }
     } else if (absCoords.x >= absCoords.z) {
-        // X face (west or south)
+        // X face (east or west)
         if (coords.x > 0.0) {
-            // +X face (south) - position (2, 1)
+            // +X face (east) - position (1, 1)
             uv = vec2(-coords.z / absCoords.x, -coords.y / absCoords.x);
             uv = (uv + 1.0) * 0.5;
-            finalUV = vec2((2.0 + uv.x) * faceWidth, (1.0 + uv.y) * faceHeight);
+            finalUV = vec2((1.0 + uv.x) * faceWidth, (1.0 + uv.y) * faceHeight);
         } else {
             // -X face (west) - position (2, 0)
             uv = vec2(coords.z / absCoords.x, -coords.y / absCoords.x);
@@ -52,17 +52,17 @@ vec2 mapCubeToTexture(vec3 coords) {
             finalUV = vec2((2.0 + uv.x) * faceWidth, uv.y * faceHeight);
         }
     } else {
-        // Z face (north or east)
+        // Z face (north or south)
         if (coords.z > 0.0) {
             // +Z face (north) - position (0, 1)
             uv = vec2(coords.x / absCoords.z, -coords.y / absCoords.z);
             uv = (uv + 1.0) * 0.5;
             finalUV = vec2(uv.x * faceWidth, (1.0 + uv.y) * faceHeight);
         } else {
-            // -Z face (east) - position (1, 1)
+            // -Z face (south) - position (2, 1)
             uv = vec2(-coords.x / absCoords.z, -coords.y / absCoords.z);
             uv = (uv + 1.0) * 0.5;
-            finalUV = vec2((1.0 + uv.x) * faceWidth, (1.0 + uv.y) * faceHeight);
+            finalUV = vec2((2.0 + uv.x) * faceWidth, (1.0 + uv.y) * faceHeight);
         }
     }
     
@@ -72,7 +72,29 @@ vec2 mapCubeToTexture(vec3 coords) {
 void main() {
     vec2 texCoords = mapCubeToTexture(normalize(inTexCoords));
     vec4 skyboxColor = texture(skyboxSampler, texCoords);
-    
+
+    // Overlay colored marker squares on side faces
+    vec2 faceUV = fract(texCoords * vec2(3.0, 2.0));
+    ivec2 cell = ivec2(floor(texCoords * vec2(3.0, 2.0)));
+    float markerSize = 0.1;
+    bool inMarker = faceUV.x > 0.5 - markerSize * 0.5 && faceUV.x < 0.5 + markerSize * 0.5
+                  && faceUV.y > 0.5 - markerSize * 0.5 && faceUV.y < 0.5 + markerSize * 0.5;
+    if (inMarker) {
+        if (cell.y == 1 && cell.x == 0) {
+            // +Z face (north) - red
+            skyboxColor = vec4(1.0, 0.0, 0.0, 1.0);
+        } else if (cell.y == 1 && cell.x == 1) {
+            // -Z face (east) - green
+            skyboxColor = vec4(0.0, 1.0, 0.0, 1.0);
+        } else if (cell.y == 1 && cell.x == 2) {
+            // +X face (south) - blue
+            skyboxColor = vec4(0.0, 0.0, 1.0, 1.0);
+        } else if (cell.y == 0 && cell.x == 2) {
+            // -X face (west) - yellow
+            skyboxColor = vec4(1.0, 1.0, 0.0, 1.0);
+        }
+    }
+
     // Write to G-buffer
     outAlbedo = skyboxColor;
     outNormal = vec4(0.5, 0.5, 1.0, 1.0); // Default normal pointing up in G-buffer format
