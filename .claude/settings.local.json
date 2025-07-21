@@ -3,7 +3,8 @@
     "allow": [
       "Bash(.gradlew build)",
       "Bash(./gradlew:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(glslc:*)"
     ],
     "deny": []
   }
