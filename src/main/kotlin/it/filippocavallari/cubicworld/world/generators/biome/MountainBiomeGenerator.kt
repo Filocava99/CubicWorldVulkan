@@ -14,8 +14,8 @@ class MountainBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 3
     override val name: String = "Mountains"
-    override val temperature: Float = 0.4f
-    override val humidity: Float = 0.5f
+    override val temperature: Float = 0.2f  // Moved to cold range
+    override val humidity: Float = 0.4f    // Lowered for better distribution
     
     /**
      * Override the surface generation for mountains

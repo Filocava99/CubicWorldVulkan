@@ -12,8 +12,8 @@ class SavannaBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 7
     override val name: String = "Savanna"
-    override val temperature: Float = 0.85f
-    override val humidity: Float = 0.3f
+    override val temperature: Float = 0.8f  // Moved to hot range
+    override val humidity: Float = 0.2f    // Moved to dry range
     
     /**
      * Override surface generation for savanna - drier appearance

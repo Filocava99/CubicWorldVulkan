@@ -12,8 +12,8 @@ class PlainsBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 4
     override val name: String = "Plains"
-    override val temperature: Float = 0.8f
-    override val humidity: Float = 0.4f
+    override val temperature: Float = 0.6f  // Moved slightly left
+    override val humidity: Float = 0.3f    // Moved down for better separation
     
     /**
      * Get the height for plains biome - gentle rolling hills

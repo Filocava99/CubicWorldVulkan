@@ -13,8 +13,8 @@ class SwampBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 5
     override val name: String = "Swamp"
-    override val temperature: Float = 0.8f
-    override val humidity: Float = 0.9f
+    override val temperature: Float = 0.7f  // Moved to warm-hot range
+    override val humidity: Float = 0.8f    // Moved down slightly
     
     /**
      * Override surface generation for swampy areas

@@ -339,7 +339,7 @@ class CubicChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
             BlockType.IRON_ORE.id -> "iron_ore"
             BlockType.GOLD_ORE.id -> "gold_ore"
             BlockType.DIAMOND_ORE.id -> "diamond_ore"
-            else -> "stone"
+            else -> "air" // Fallback for unknown blocks
         }
     }
     

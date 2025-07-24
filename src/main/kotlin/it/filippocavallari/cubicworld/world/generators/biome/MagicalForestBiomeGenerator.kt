@@ -17,8 +17,8 @@ class MagicalForestBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 100 // Using high IDs for mod-inspired biomes
     override val name: String = "Magical Forest"
-    override val temperature: Float = 0.7f
-    override val humidity: Float = 0.8f
+    override val temperature: Float = 0.4f  // Moved to cool-temperate range
+    override val humidity: Float = 0.9f    // Moved to very humid range
     
     /**
      * Override the surface generation for magical forest

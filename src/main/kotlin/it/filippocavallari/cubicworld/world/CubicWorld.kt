@@ -1,7 +1,7 @@
 package it.filippocavallari.cubicworld.world
 
 import it.filippocavallari.cubicworld.world.chunk.CubicChunk
-import it.filippocavallari.cubicworld.world.generators.WorldGenerator
+import it.filippocavallari.cubicworld.world.generators.CubicWorldGenerator
 import org.joml.Vector3i
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -13,8 +13,8 @@ import java.util.concurrent.Future
  * This allows for infinite world height and significantly reduced memory usage.
  */
 class CubicWorld(
-    // World generator
-    private val generator: WorldGenerator,
+    // Cubic world generator
+    private val generator: CubicWorldGenerator,
     // Resources paths
     val texturesPath: String = "src/main/resources/textures",
     val modelsPath: String = "src/main/resources/models"
@@ -112,57 +112,13 @@ class CubicWorld(
     }
     
     /**
-     * Generate content for a cubic chunk
+     * Generate content for a cubic chunk using native cubic world generator
      */
     private fun generateCubicChunk(chunk: CubicChunk) {
-        // Skip generation for chunks that are likely to be empty (high in the sky)
-        if (chunk.position.y > 10) { // Above y=160 world height
-            // Leave empty
-            return
-        }
-        
-        // Generate terrain for this cubic chunk
-        // The generator needs to be aware of cubic chunks
-        val worldY = chunk.getWorldY()
-        
-        // Basic terrain generation for cubic chunks
-        for (x in 0 until CubicChunk.SIZE) {
-            for (z in 0 until CubicChunk.SIZE) {
-                val worldX = chunk.getWorldX() + x
-                val worldZ = chunk.getWorldZ() + z
-                
-                // Get height at this position (you'll need to adapt your world generator)
-                val terrainHeight = getTerrainHeightAt(worldX, worldZ)
-                
-                for (y in 0 until CubicChunk.SIZE) {
-                    val blockY = worldY + y
-                    
-                    val blockId = when {
-                        blockY > terrainHeight -> 0 // Air
-                        blockY == terrainHeight -> 3 // Grass
-                        blockY > terrainHeight - 4 -> 2 // Dirt
-                        blockY > 0 -> 1 // Stone
-                        else -> 7 // Bedrock at y=0
-                    }
-                    
-                    if (blockId != 0) {
-                        chunk.setBlock(x, y, z, blockId)
-                    }
-                }
-            }
-        }
+        // Use the CubicWorldGenerator directly - no temporary objects needed
+        generator.generateCubicChunk(chunk)
     }
     
-    /**
-     * Get terrain height at world coordinates (placeholder - integrate with your world generator)
-     */
-    private fun getTerrainHeightAt(x: Int, z: Int): Int {
-        // Simple noise-based terrain height
-        // In production, this should use your actual world generator
-        val scale = 0.05
-        val height = 64 + (Math.sin(x * scale) * Math.cos(z * scale) * 16).toInt()
-        return height.coerceIn(1, 128)
-    }
     
     /**
      * Update chunk neighbors for efficient occlusion culling

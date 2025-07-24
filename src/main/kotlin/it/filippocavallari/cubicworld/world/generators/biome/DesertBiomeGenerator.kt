@@ -12,7 +12,7 @@ class DesertBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 2
     override val name: String = "Desert"
-    override val temperature: Float = 0.9f
+    override val temperature: Float = 0.95f
     override val humidity: Float = 0.1f
     
     /**
@@ -29,6 +29,11 @@ class DesertBiomeGenerator : AbstractBiomeGenerator() {
         
         // Top layer - always sand
         chunk.setBlock(x, height, z, BlockType.SAND.id)
+        
+        // Debug output for desert surface
+        if (x == 8 && z == 8) { // Center of spawn chunk
+            println("DEBUG: Placed SAND at ($x, $height, $z) in Desert biome")
+        }
     }
     
     /**

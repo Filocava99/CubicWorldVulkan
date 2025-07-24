@@ -456,7 +456,7 @@ class DirectionalVulkanChunkMeshBuilder(private val textureStitcher: TextureStit
             BlockType.REDSTONE_ORE.id -> "redstone_ore"
             BlockType.LAPIS_ORE.id -> "lapis_ore"
             BlockType.WATER.id -> "water"
-            else -> "stone"
+            else -> "air" // Fallback for unknown blocks
         }
     }
     

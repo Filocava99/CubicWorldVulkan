@@ -13,6 +13,7 @@ public class Scene {
     private Light directionalLight;
     private long entitiesLoadedTimeStamp;
     private Map<String, List<Entity>> entitiesMap;
+    private FrustumCuller frustumCuller;
     private IGuiInstance guiInstance;
     private boolean lightChanged;
     private Light[] lights;
@@ -23,6 +24,7 @@ public class Scene {
         projection = new Projection();
         projection.resize(window.getWidth(), window.getHeight());
         camera = new Camera();
+        frustumCuller = new FrustumCuller();
         ambientLight = new Vector4f();
     }
 
@@ -58,6 +60,10 @@ public class Scene {
 
     public Map<String, List<Entity>> getEntitiesMap() {
         return entitiesMap;
+    }
+
+    public FrustumCuller getFrustumCuller() {
+        return frustumCuller;
     }
 
     public IGuiInstance getGuiInstance() {
@@ -110,5 +116,12 @@ public class Scene {
         }
 
         lightChanged = true;
+    }
+
+    /**
+     * Update frustum culling planes when camera or projection changes
+     */
+    public void updateFrustum() {
+        frustumCuller.updateFrustum(camera.getViewMatrix(), projection.getProjectionMatrix());
     }
 }

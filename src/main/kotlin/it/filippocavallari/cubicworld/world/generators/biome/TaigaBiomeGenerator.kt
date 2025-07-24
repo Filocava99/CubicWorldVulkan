@@ -13,8 +13,8 @@ class TaigaBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 6
     override val name: String = "Taiga"
-    override val temperature: Float = 0.3f
-    override val humidity: Float = 0.8f
+    override val temperature: Float = 0.1f  // Moved to very cold range
+    override val humidity: Float = 0.7f    // Lowered slightly
     
     /**
      * Get the height for taiga biome - moderate hills

@@ -69,8 +69,8 @@ object TextureManager {
                 println("Mapped texture '$blockName' to atlas index $index")
             } else {
                 println("WARNING: Failed to map texture for '$blockName'")
-                // Fallback to a known texture (stone)
-                val fallbackIndex = stitcher.getTextureIndex("stone")
+                // Fallback to air texture for unknown blocks
+                val fallbackIndex = stitcher.getTextureIndex("air")
                 if (fallbackIndex >= 0) {
                     textureIndices[blockName] = fallbackIndex
                     println("  Using fallback texture at index $fallbackIndex")

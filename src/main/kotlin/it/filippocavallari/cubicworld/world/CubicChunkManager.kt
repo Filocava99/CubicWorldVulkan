@@ -350,8 +350,35 @@ class CubicChunkManager(
     }
     
     /**
-     * Get chunks that should be prioritized for visibility culling
+     * Get chunks that are visible using proper frustum culling
      */
+    fun getVisibleChunks(frustumCuller: org.vulkanb.eng.scene.FrustumCuller): List<CubicChunk> {
+        val visibleChunks = mutableListOf<CubicChunk>()
+        
+        for ((chunkPos, chunkInfo) in loadedChunks) {
+            val chunk = chunkInfo.chunk
+            
+            // Calculate chunk world bounds
+            val worldMinX = chunk.getWorldX().toFloat()
+            val worldMinY = chunk.getWorldY().toFloat()
+            val worldMinZ = chunk.getWorldZ().toFloat()
+            val worldMaxX = worldMinX + CubicChunk.SIZE
+            val worldMaxY = worldMinY + CubicChunk.SIZE
+            val worldMaxZ = worldMinZ + CubicChunk.SIZE
+            
+            // Use proper frustum culling
+            if (frustumCuller.isChunkInFrustum(worldMinX, worldMinY, worldMinZ, worldMaxX, worldMaxY, worldMaxZ)) {
+                visibleChunks.add(chunk)
+            }
+        }
+        
+        return visibleChunks
+    }
+    
+    /**
+     * Get chunks that should be prioritized for visibility culling (legacy method)
+     */
+    @Deprecated("Use getVisibleChunks(FrustumCuller) instead")
     fun getVisibleChunks(cameraPos: Vector3f, cameraForward: Vector3f): List<CubicChunk> {
         val visibleChunks = mutableListOf<CubicChunk>()
         

@@ -13,6 +13,7 @@ import it.filippocavallari.cubicworld.world.chunk.Chunk
 import it.filippocavallari.cubicworld.world.chunk.CubicChunk
 import it.filippocavallari.cubicworld.world.generators.BiodiverseWorldGenerator
 import it.filippocavallari.cubicworld.world.generators.WorldGeneratorRegistry
+import it.filippocavallari.cubicworld.world.generators.CubicBiodiverseWorldGenerator
 import it.filippocavallari.cubicworld.data.block.BlockType
 import org.vulkanb.eng.Engine
 import org.vulkanb.eng.IAppLogic
@@ -100,10 +101,9 @@ class CubicWorldEngine : IAppLogic {
             // Initialize the world generator registry
             WorldGeneratorRegistry.initialize()
             
-            // Create biodiverse world generator with random seed
+            // Create world generators based on chunk system
             val seed = System.currentTimeMillis()
             println("Using seed for world generation: $seed")
-            val worldGenerator = WorldGeneratorRegistry.create("biodiverse", seed)
             
             // Create and initialize world
             if (useCubicChunks) {
@@ -113,7 +113,9 @@ class CubicWorldEngine : IAppLogic {
                 println("Features: Infinite height, better occlusion culling")
                 println("=================================\n")
                 
-                cubicWorld = CubicWorld(worldGenerator)
+                // Use CubicChunk-native world generator
+                val cubicWorldGenerator = CubicBiodiverseWorldGenerator(seed)
+                cubicWorld = CubicWorld(cubicWorldGenerator)
                 
                 // Create cubic chunk manager
                 cubicChunkManager = CubicChunkManager(cubicWorld, vulkanIntegration)
@@ -133,6 +135,13 @@ class CubicWorldEngine : IAppLogic {
                     }
                 })
             } else {
+                println("\n=== USING TRADITIONAL CHUNKS SYSTEM ===")
+                println("Chunk size: 16x256x16 blocks")
+                println("Dynamic loading: 4x4 chunks around player")
+                println("========================================\n")
+                
+                // Use traditional world generator for regular chunks
+                val worldGenerator = WorldGeneratorRegistry.create("biodiverse", seed)
                 gameWorld = World(worldGenerator)
                 
                 // Connect world to Vulkan integration
@@ -332,7 +341,8 @@ class CubicWorldEngine : IAppLogic {
     private fun setupCamera(camera: Camera) {
         if (useCubicChunks) {
             // Position camera at a good starting point for cubic chunks
-            camera.position.set(8.0f, 72.0f, 8.0f) // Start at a reasonable height
+            // Spawn above typical terrain height (64) + variation (45) + buffer = ~120
+            camera.position.set(8.0f, 120.0f, 8.0f) // Start well above highest terrain
             camera.setRotation(0.5f, 0.0f) // Look slightly down
             
             println("\n=== CAMERA SETUP FOR CUBIC CHUNKS ===")
@@ -359,7 +369,8 @@ class CubicWorldEngine : IAppLogic {
             println("=====================================\n")
         } else {
             // Original camera setup for traditional chunks
-            camera.position.set(8.0f, 50.0f, 8.0f)
+            // Spawn above typical terrain height (64) + variation (45) + buffer = ~120
+            camera.position.set(8.0f, 120.0f, 8.0f) // Start well above highest terrain
             camera.setRotation(1.0f, 0.0f)
             
             println("\n=== CAMERA SETUP & EXPECTED LAYOUT ===")
@@ -492,6 +503,11 @@ class CubicWorldEngine : IAppLogic {
                 camera.position.z
             )
             
+            // Update frustum culling and directional chunk visibility
+            val cameraForward = Vector3f()
+            camera.getViewMatrix().positiveZ(cameraForward).negate() // Get forward direction from view matrix
+            vulkanIntegration.updateDirectionalChunkVisibility(cameraForward, camera.position)
+            
             // Optional: Print debug info periodically (every 5 seconds)
             if (System.currentTimeMillis() % 5000 < 50) {
                 val playerChunkX = CubicChunk.worldToChunk(camera.position.x.toInt())
@@ -499,6 +515,11 @@ class CubicWorldEngine : IAppLogic {
                 val playerChunkZ = CubicChunk.worldToChunk(camera.position.z.toInt())
                 println("Player at world (${camera.position.x.toInt()}, ${camera.position.y.toInt()}, ${camera.position.z.toInt()}) = chunk ($playerChunkX, $playerChunkY, $playerChunkZ)")
                 println(cubicChunkManager.getLoadedChunkInfo())
+                
+                // Demonstrate frustum culling by getting visible chunks
+                scene.updateFrustum()
+                val visibleChunks = cubicChunkManager.getVisibleChunks(scene.frustumCuller)
+                println("Frustum culling: ${visibleChunks.size} cubic chunks visible out of ${cubicChunkManager.getLoadedChunkInfo().split("loaded: ")[1].split("/")[0].toIntOrNull() ?: 0} loaded")
             }
         } else {
             // Update the world

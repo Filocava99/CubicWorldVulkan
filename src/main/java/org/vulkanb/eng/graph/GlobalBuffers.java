@@ -273,7 +273,7 @@ public class GlobalBuffers {
         
         // Debug the buffer capacity
         int bufferCapacity = dataBuffer.capacity();
-        System.out.println("Buffer capacity: " + bufferCapacity);
+//        System.out.println("Buffer capacity: " + bufferCapacity);
         
         int pos = 0;
         for (VulkanModel vulkanModel : vulkanModels) {

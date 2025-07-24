@@ -60,7 +60,9 @@ class BiodiverseWorldGenerator(
         
         println("Registered ${biomeRegistry.count()} biomes:")
         for (biome in biomeRegistry.getAllBiomes()) {
-            println("  - ${biome.name} (ID: ${biome.id}) - Temp: ${biome.temperature}, Humidity: ${biome.humidity}")
+            val tempIndex = (biome.temperature * 9).toInt().coerceIn(0, 9)
+            val humidityIndex = (biome.humidity * 9).toInt().coerceIn(0, 9)
+            println("  - ${biome.name} (ID: ${biome.id}) - Temp: ${biome.temperature} (${tempIndex}), Humidity: ${biome.humidity} (${humidityIndex})")
         }
     }
     
@@ -197,35 +199,43 @@ class BiodiverseWorldGenerator(
                 // Generate temperature and humidity with enhanced variation
                 // Use multiple octaves for more complex climate patterns
                 val baseTemperatureNoise = NoiseFactory.octavedSimplexNoise(
-                    worldX.toFloat() * 0.001f + seed * 0.1f, 
-                    worldZ.toFloat() * 0.001f + seed * 0.2f,
-                    4,  // More octaves for detail
-                    BIOME_SCALE * 0.5f  // Larger scale for bigger biome regions
+                    worldX.toFloat() * 0.008f + seed * 0.1f,  // Medium frequency = 200-500 block biomes
+                    worldZ.toFloat() * 0.008f + seed * 0.2f,  // Medium frequency = 200-500 block biomes
+                    3,  // Fewer octaves for clearer boundaries
+                    0.8f  // Strong detail
                 )
                 
                 val baseHumidityNoise = NoiseFactory.octavedSimplexNoise(
-                    worldX.toFloat() * 0.001f + seed * 0.3f, 
-                    worldZ.toFloat() * 0.001f + seed * 0.4f,
-                    4,  // More octaves for detail
-                    BIOME_SCALE * 0.5f  // Larger scale for bigger biome regions
+                    worldX.toFloat() * 0.008f + seed * 0.3f,  // Medium frequency = 200-500 block biomes
+                    worldZ.toFloat() * 0.008f + seed * 0.4f,  // Medium frequency = 200-500 block biomes
+                    4,  // Different octaves for humidity to avoid correlation
+                    0.9f  // High detail for humidity variation
                 )
                 
                 // Add continental drift effects for large-scale climate variation
                 val continentalTempShift = NoiseFactory.simplexNoise(
-                    worldX.toFloat() * 0.0001f + seed * 0.5f,
-                    worldZ.toFloat() * 0.0001f + seed * 0.6f,
+                    worldX.toFloat() * 0.001f + seed * 0.5f,  // Very large-scale climate zones
+                    worldZ.toFloat() * 0.001f + seed * 0.6f,  // Very large-scale climate zones
                     1.0f
-                ) * 0.3f
+                ) * 0.3f  // Moderate continental influence
                 
                 val continentalHumidityShift = NoiseFactory.simplexNoise(
-                    worldX.toFloat() * 0.0001f + seed * 0.7f,
-                    worldZ.toFloat() * 0.0001f + seed * 0.8f,
+                    worldX.toFloat() * 0.0015f + seed * 0.7f,  // Different scale for humidity
+                    worldZ.toFloat() * 0.0015f + seed * 0.8f,  // Different scale for humidity
                     1.0f
-                ) * 0.3f
+                ) * 0.25f  // Moderate continental influence
                 
-                // Combine noise values and ensure full range usage
+                // Combine noise values and apply world coordinate-based distribution
+                // Use world coordinates to ensure different areas get different base climate tendencies
+                val worldClimateX = (worldX / 1000.0f) % 1.0f
+                val worldClimateZ = (worldZ / 1000.0f) % 1.0f
+                
                 var temperature = (baseTemperatureNoise + 1.0f) * 0.5f + continentalTempShift
                 var humidity = (baseHumidityNoise + 1.0f) * 0.5f + continentalHumidityShift
+                
+                // Add coordinate-based variation to ensure all climate zones are represented
+                temperature += worldClimateX * 0.3f - 0.15f  // ±0.15 variation based on X coordinate
+                humidity += worldClimateZ * 0.3f - 0.15f     // ±0.15 variation based on Z coordinate
                 
                 // Enhance contrast to ensure all biome types appear
                 temperature = enhanceContrast(temperature)
@@ -455,8 +465,9 @@ class BiodiverseWorldGenerator(
         const val CONTINENT_MEAN_HEIGHT = 64
         const val CONTINENT_HEIGHT_SCALE = 45  // Increased for more varied terrain with taller peaks
         
-        const val BIOME_SCALE = 0.005f
-        const val BIOME_BORDER_SCALE = 0.01f
+        // Medium-sized biomes - for variety while being traversable
+        const val BIOME_SCALE = 0.04f        // Medium scale = medium biomes (~200-500 blocks)
+        const val BIOME_BORDER_SCALE = 1.0f  // High scale = sharp borders
         const val BIOME_BLEND_AREA = 16
         
         const val MIN_HEIGHT = 1

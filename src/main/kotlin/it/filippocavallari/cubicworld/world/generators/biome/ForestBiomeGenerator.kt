@@ -15,8 +15,8 @@ class ForestBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 1
     override val name: String = "Forest"
-    override val temperature: Float = 0.6f
-    override val humidity: Float = 0.6f
+    override val temperature: Float = 0.5f  // Moved to center-left
+    override val humidity: Float = 0.5f    // Moved to center
     
     /**
      * Get the height for the forest biome - gentle hills

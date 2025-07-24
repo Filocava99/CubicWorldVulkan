@@ -795,8 +795,8 @@ class VulkanIntegration {
     }
     
     /**
-     * Update visibility of directional chunk meshes based on camera direction
-     * This should be called each frame with the current camera direction
+     * Update visibility of directional chunk meshes using proper frustum culling
+     * This should be called each frame after updating the scene's frustum
      * 
      * @param cameraForward The forward direction vector of the camera (normalized)
      * @param cameraPosition The position of the camera
@@ -804,12 +804,13 @@ class VulkanIntegration {
     fun updateDirectionalChunkVisibility(cameraForward: Vector3f, cameraPosition: Vector3f) {
         if (!useDirectionalCulling) return
         
-        // For now, we'll just log which faces should be visible
-        // In a full implementation, we would need to modify the rendering pipeline
-        // to skip drawing certain entities based on visibility flags
+        // Update frustum culling planes first
+        vulkanScene.updateFrustum()
+        val frustumCuller = vulkanScene.frustumCuller
         
         var visibleFaces = 0
         var totalFaces = 0
+        var culledByFrustum = 0
         
         // For each loaded chunk, calculate which faces should be visible
         for ((chunkId, directionalEntities) in directionalLoadedChunks) {
@@ -819,9 +820,30 @@ class VulkanIntegration {
                 val chunkX = parts[1].toIntOrNull() ?: continue
                 val chunkZ = parts[2].toIntOrNull() ?: continue
                 
-                // Calculate chunk center position
-                val chunkCenterX = chunkX * Chunk.SIZE + Chunk.SIZE / 2.0f
-                val chunkCenterZ = chunkZ * Chunk.SIZE + Chunk.SIZE / 2.0f
+                // Calculate chunk bounds
+                val chunkMinX = chunkX * Chunk.SIZE.toFloat()
+                val chunkMinZ = chunkZ * Chunk.SIZE.toFloat()
+                val chunkMinY = 0f  // Assuming ground level, could be improved
+                val chunkMaxX = chunkMinX + Chunk.SIZE
+                val chunkMaxZ = chunkMinZ + Chunk.SIZE
+                val chunkMaxY = chunkMinY + Chunk.HEIGHT // Use full chunk height
+                
+                // First check if the entire chunk is in the frustum
+                val chunkInFrustum = frustumCuller.isChunkInFrustum(
+                    chunkMinX, chunkMinY, chunkMinZ,
+                    chunkMaxX, chunkMaxY, chunkMaxZ
+                )
+                
+                if (!chunkInFrustum) {
+                    // Chunk is completely outside frustum, cull all faces
+                    culledByFrustum += directionalEntities.size
+                    totalFaces += directionalEntities.size
+                    continue
+                }
+                
+                // Chunk is in frustum, now check directional visibility
+                val chunkCenterX = chunkMinX + Chunk.SIZE / 2.0f
+                val chunkCenterZ = chunkMinZ + Chunk.SIZE / 2.0f
                 val chunkCenterY = cameraPosition.y
                 
                 // Vector from camera to chunk center
@@ -831,7 +853,7 @@ class VulkanIntegration {
                     chunkCenterZ - cameraPosition.z
                 )
                 
-                // Check visibility for each direction
+                // Check visibility for each direction within the frustum
                 for ((direction, entityId) in directionalEntities) {
                     totalFaces++
                     val isVisible = shouldDirectionBeVisible(direction, cameraForward, toChunk)
@@ -851,7 +873,14 @@ class VulkanIntegration {
                 ((totalFaces - visibleFaces) * 100.0f / totalFaces)
             } else 0.0f
             
-            println("Directional culling stats: $visibleFaces/$totalFaces faces visible (${String.format("%.1f", culledPercentage)}% culled)")
+            val frustumCulledPercentage = if (totalFaces > 0) {
+                (culledByFrustum * 100.0f / totalFaces)
+            } else 0.0f
+            
+            println("Culling stats: $visibleFaces/$totalFaces faces visible")
+            println("  Frustum culled: $culledByFrustum faces (${String.format("%.1f", frustumCulledPercentage)}%)")
+            println("  Directional culled: ${totalFaces - visibleFaces - culledByFrustum} faces (${String.format("%.1f", culledPercentage - frustumCulledPercentage)}%)")
+            println("  Total culled: ${String.format("%.1f", culledPercentage)}%")
         }
     }
     

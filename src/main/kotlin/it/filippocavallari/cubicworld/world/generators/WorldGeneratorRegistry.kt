@@ -37,8 +37,6 @@ object WorldGeneratorRegistry {
         // Register the flat world generator
         register("flat") { seed -> FlatWorldGenerator() }
         
-        // Register the terrain generator
-        register("terrain") { seed -> TerrainGenerator() }
         
         // Register our new diverse biome generator
         register("biodiverse") { seed -> BiodiverseWorldGenerator(seed) }

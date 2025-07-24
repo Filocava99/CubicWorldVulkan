@@ -98,8 +98,16 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
         // Top layer - grass if above sea level, otherwise dirt
         if (height > SEA_LEVEL) {
             chunk.setBlock(x, height, z, BlockType.GRASS.id)
+            // Debug output for grass placement
+            if (x == 8 && z == 8) { // Center of spawn chunk
+                println("DEBUG: Placed GRASS at ($x, $height, $z) in biome ${this.name}")
+            }
         } else {
             chunk.setBlock(x, height, z, BlockType.DIRT.id)
+            // Debug output for underwater areas
+            if (x == 8 && z == 8) { // Center of spawn chunk
+                println("DEBUG: Placed DIRT at ($x, $height, $z) underwater in biome ${this.name}")
+            }
         }
     }
     
