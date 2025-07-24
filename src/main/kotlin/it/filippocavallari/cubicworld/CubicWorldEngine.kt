@@ -1,5 +1,6 @@
 package it.filippocavallari.cubicworld
 
+import it.filippocavallari.cubicworld.gui.CrosshairGui
 import it.filippocavallari.cubicworld.integration.VulkanIntegration
 import it.filippocavallari.cubicworld.integration.VulkanChunkMeshBuilder
 import it.filippocavallari.cubicworld.models.ModelManager
@@ -156,6 +157,9 @@ class CubicWorldEngine : IAppLogic {
             
             // Setup lighting
             setupLighting(scene)
+            
+            // Setup crosshair GUI with proper ImGui frame management
+            setupCrosshairGui(scene)
             
             // Set up mouse cursor capture for first-person camera mode
             val windowHandle = window.windowHandle
@@ -412,6 +416,15 @@ class CubicWorldEngine : IAppLogic {
         
         // Set scene lights
         scene.lights = arrayOf(directionalLight)
+    }
+    
+    /**
+     * Setup the crosshair GUI with proper ImGui frame management
+     */
+    private fun setupCrosshairGui(scene: Scene) {
+        val crosshairGui = CrosshairGui()
+        scene.guiInstance = crosshairGui
+        println("Crosshair GUI initialized with proper frame management")
     }
     
     /**
