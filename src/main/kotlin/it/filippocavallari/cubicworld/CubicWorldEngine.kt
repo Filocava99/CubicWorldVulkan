@@ -17,6 +17,8 @@ import it.filippocavallari.cubicworld.world.generators.WorldGeneratorRegistry
 import it.filippocavallari.cubicworld.world.generators.CubicBiodiverseWorldGenerator
 import it.filippocavallari.cubicworld.data.block.BlockType
 import it.filippocavallari.cubicworld.interaction.BlockInteractionManager
+import it.filippocavallari.cubicworld.physics.PhysicsEngine
+import it.filippocavallari.cubicworld.physics.MovementMode
 import org.vulkanb.eng.Engine
 import org.vulkanb.eng.IAppLogic
 import org.vulkanb.eng.Window
@@ -58,6 +60,13 @@ class CubicWorldEngine : IAppLogic {
     
     // Block interaction manager
     private lateinit var blockInteractionManager: BlockInteractionManager
+    
+    // Physics system
+    private lateinit var physicsEngine: PhysicsEngine
+    private var movementMode = MovementMode.FLY
+    
+    // Input state tracking
+    private var lastF1KeyState = false
     
     // Constants
     companion object {
@@ -172,6 +181,9 @@ class CubicWorldEngine : IAppLogic {
             
             // Initialize block interaction manager
             setupBlockInteraction()
+            
+            // Initialize physics engine
+            setupPhysicsEngine()
             
             // Set up mouse cursor capture for first-person camera mode
             val windowHandle = window.windowHandle
@@ -456,6 +468,27 @@ class CubicWorldEngine : IAppLogic {
     }
     
     /**
+     * Setup physics engine
+     */
+    private fun setupPhysicsEngine() {
+        physicsEngine = if (useCubicChunks) {
+            PhysicsEngine(cubicWorld = cubicWorld)
+        } else {
+            PhysicsEngine(world = gameWorld)
+        }
+        println("\n=== PHYSICS ENGINE INITIALIZED ===")
+        println("Movement modes:")
+        println("  FLY MODE (current): Free movement in 3D space")
+        println("  PHYSICS MODE: Gravity, collision, jumping")
+        println("")
+        println("Controls:")
+        println("  F1: Toggle between fly and physics mode")
+        println("  Space: Jump (physics mode) / Move up (fly mode)")
+        println("  Ctrl: Sprint (physics mode)")
+        println("===================================")
+    }
+    
+    /**
      * Handle input events
      */
     override fun input(window: Window, scene: Scene, diffTimeMillis: Long, inputConsumed: Boolean) {
@@ -464,7 +497,21 @@ class CubicWorldEngine : IAppLogic {
         }
         
         val camera = scene.camera
-        val move = diffTimeMillis * MOVEMENT_SPEED
+        val deltaTime = diffTimeMillis / 1000.0f
+        
+        // Handle F1 key to toggle movement mode
+        val currentF1State = window.isKeyPressed(GLFW.GLFW_KEY_F1)
+        if (currentF1State && !lastF1KeyState) {
+            movementMode = if (movementMode == MovementMode.FLY) {
+                println("Switched to PHYSICS MODE - Gravity and collision enabled")
+                physicsEngine.reset() // Reset velocity when switching modes
+                MovementMode.PHYSICS
+            } else {
+                println("Switched to FLY MODE - Free movement enabled")
+                MovementMode.FLY
+            }
+        }
+        lastF1KeyState = currentF1State
         
         // Handle escape key to toggle mouse capture
         if (window.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) {
@@ -488,23 +535,70 @@ class CubicWorldEngine : IAppLogic {
             }
         }
         
-        // Camera movement with WASD
-        if (window.isKeyPressed(GLFW.GLFW_KEY_W)) {
-            camera.moveForward(move)
-        } else if (window.isKeyPressed(GLFW.GLFW_KEY_S)) {
-            camera.moveBackwards(move)
-        }
-        
-        if (window.isKeyPressed(GLFW.GLFW_KEY_A)) {
-            camera.moveLeft(move)
-        } else if (window.isKeyPressed(GLFW.GLFW_KEY_D)) {
-            camera.moveRight(move)
-        }
-        
-        if (window.isKeyPressed(GLFW.GLFW_KEY_SPACE)) {
-            camera.moveUp(move)
-        } else if (window.isKeyPressed(GLFW.GLFW_KEY_LEFT_SHIFT)) {
-            camera.moveDown(move)
+        // Handle movement based on current mode
+        when (movementMode) {
+            MovementMode.FLY -> {
+                // Original fly movement
+                val move = diffTimeMillis * MOVEMENT_SPEED
+                
+                if (window.isKeyPressed(GLFW.GLFW_KEY_W)) {
+                    camera.moveForward(move)
+                } else if (window.isKeyPressed(GLFW.GLFW_KEY_S)) {
+                    camera.moveBackwards(move)
+                }
+                
+                if (window.isKeyPressed(GLFW.GLFW_KEY_A)) {
+                    camera.moveLeft(move)
+                } else if (window.isKeyPressed(GLFW.GLFW_KEY_D)) {
+                    camera.moveRight(move)
+                }
+                
+                if (window.isKeyPressed(GLFW.GLFW_KEY_SPACE)) {
+                    camera.moveUp(move)
+                } else if (window.isKeyPressed(GLFW.GLFW_KEY_LEFT_SHIFT)) {
+                    camera.moveDown(move)
+                }
+            }
+            
+            MovementMode.PHYSICS -> {
+                // Physics-based movement
+                val isSprinting = window.isKeyPressed(GLFW.GLFW_KEY_LEFT_CONTROL)
+                val moveDirection = Vector3f()
+                
+                // Calculate movement direction based on camera rotation
+                val cameraRotation = camera.rotation
+                val forward = Vector3f(
+                    kotlin.math.sin(cameraRotation.y),
+                    0f,
+                    -kotlin.math.cos(cameraRotation.y)
+                ).normalize()
+                val right = Vector3f(forward).cross(Vector3f(0f, 1f, 0f)).normalize()
+                
+                // WASD movement - accumulate all pressed directions
+                if (window.isKeyPressed(GLFW.GLFW_KEY_W)) {
+                    moveDirection.add(forward)
+                }
+                if (window.isKeyPressed(GLFW.GLFW_KEY_S)) {
+                    moveDirection.sub(forward)
+                }
+                if (window.isKeyPressed(GLFW.GLFW_KEY_A)) {
+                    moveDirection.sub(right)
+                }
+                if (window.isKeyPressed(GLFW.GLFW_KEY_D)) {
+                    moveDirection.add(right)
+                }
+                
+                // Don't normalize here - let the physics engine handle it for proper deceleration
+                // when no keys are pressed (moveDirection will be zero vector)
+                
+                // Apply horizontal movement to physics engine
+                physicsEngine.moveHorizontal(moveDirection, deltaTime, isSprinting)
+                
+                // Handle jumping
+                if (window.isKeyPressed(GLFW.GLFW_KEY_SPACE)) {
+                    physicsEngine.jump()
+                }
+            }
         }
         
         
@@ -585,6 +679,13 @@ class CubicWorldEngine : IAppLogic {
      */
     override fun update(window: Window, scene: Scene, diffTimeMillis: Long) {
         val camera = scene.camera
+        val deltaTime = diffTimeMillis / 1000.0f
+        
+        // Update physics if in physics mode
+        if (movementMode == MovementMode.PHYSICS) {
+            val isSprinting = window.isKeyPressed(GLFW.GLFW_KEY_LEFT_CONTROL)
+            physicsEngine.update(camera, deltaTime, isSprinting)
+        }
         
         if (useCubicChunks) {
             // Update cubic chunk manager with current player position

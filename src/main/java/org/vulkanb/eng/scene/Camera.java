@@ -80,7 +80,7 @@ public class Camera {
         recalculate();
     }
 
-    private void recalculate() {
+    public void recalculate() {
         hasMoved = true;
         viewMatrix.identity()
                 .rotateX(rotation.x)
