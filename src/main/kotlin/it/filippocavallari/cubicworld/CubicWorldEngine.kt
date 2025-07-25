@@ -16,6 +16,7 @@ import it.filippocavallari.cubicworld.world.generators.BiodiverseWorldGenerator
 import it.filippocavallari.cubicworld.world.generators.WorldGeneratorRegistry
 import it.filippocavallari.cubicworld.world.generators.CubicBiodiverseWorldGenerator
 import it.filippocavallari.cubicworld.data.block.BlockType
+import it.filippocavallari.cubicworld.interaction.BlockInteractionManager
 import org.vulkanb.eng.Engine
 import org.vulkanb.eng.IAppLogic
 import org.vulkanb.eng.Window
@@ -55,6 +56,9 @@ class CubicWorldEngine : IAppLogic {
     // Vulkan scene reference
     private lateinit var vulkanScene: Scene
     
+    // Block interaction manager
+    private lateinit var blockInteractionManager: BlockInteractionManager
+    
     // Constants
     companion object {
         private const val MOUSE_SENSITIVITY = 0.1f
@@ -65,6 +69,10 @@ class CubicWorldEngine : IAppLogic {
         // Mouse cursor state
         private var mouseCaptured = true
     }
+    
+    // Mouse click tracking
+    private var lastLeftClickState = false
+    private var lastRightClickState = false
     
     /**
      * Start the engine
@@ -132,6 +140,7 @@ class CubicWorldEngine : IAppLogic {
                     }
                     
                     override fun onChunkUpdated(chunk: CubicChunk) {
+                        println("DEBUG: Chunk updated - regenerating mesh for chunk at (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z})")
                         vulkanIntegration.createCubicChunkMesh(chunk)
                     }
                 })
@@ -160,6 +169,9 @@ class CubicWorldEngine : IAppLogic {
             
             // Setup crosshair GUI with proper ImGui frame management
             setupCrosshairGui(scene)
+            
+            // Initialize block interaction manager
+            setupBlockInteraction()
             
             // Set up mouse cursor capture for first-person camera mode
             val windowHandle = window.windowHandle
@@ -428,6 +440,22 @@ class CubicWorldEngine : IAppLogic {
     }
     
     /**
+     * Setup block interaction system
+     */
+    private fun setupBlockInteraction() {
+        blockInteractionManager = if (useCubicChunks) {
+            BlockInteractionManager(cubicWorld = cubicWorld)
+        } else {
+            BlockInteractionManager(world = gameWorld)
+        }
+        println("Block interaction system initialized")
+        println("Controls:")
+        println("  Left Click: Remove block")
+        println("  Right Click: Place block")
+        println("  Number Keys 1-9: Select block type")
+    }
+    
+    /**
      * Handle input events
      */
     override fun input(window: Window, scene: Scene, diffTimeMillis: Long, inputConsumed: Boolean) {
@@ -479,9 +507,26 @@ class CubicWorldEngine : IAppLogic {
             camera.moveDown(move)
         }
         
+        
+        // Handle mouse clicks for block interaction (independent of mouse capture)
+        val mouseInput = window.mouseInput
+        val currentLeftClick = mouseInput.isLeftButtonPressed
+        val currentRightClick = mouseInput.isRightButtonPressed
+        
+        if (currentLeftClick && !lastLeftClickState) {
+            println("DEBUG: Left click detected")
+            blockInteractionManager.handleLeftClick(camera)
+        }
+        if (currentRightClick && !lastRightClickState) {
+            println("DEBUG: Right click detected")
+            blockInteractionManager.handleRightClick(camera)
+        }
+        
+        lastLeftClickState = currentLeftClick
+        lastRightClickState = currentRightClick
+        
         // Camera rotation with mouse (only when mouse is captured)
         if (mouseCaptured) {
-            val mouseInput = window.mouseInput
             val displVec = mouseInput.displVec
             
             // Only process mouse movement if there's actual displacement
@@ -498,6 +543,39 @@ class CubicWorldEngine : IAppLogic {
                 // Reset cursor position to center after processing movement
                 // This prevents the cursor from hitting the window edges
                 mouseInput.resetCursorPosition()
+            }
+        }
+        
+        // Handle number keys for block type selection
+        handleBlockTypeSelection(window)
+    }
+    
+    /**
+     * Handle block type selection with number keys
+     */
+    private fun handleBlockTypeSelection(window: Window) {
+        val blockTypes = listOf(
+            BlockType.STONE,
+            BlockType.GRASS,
+            BlockType.DIRT,
+            BlockType.LOG_OAK,
+            BlockType.LEAVES_OAK,
+            BlockType.SAND,
+            BlockType.COBBLESTONE,
+            BlockType.COAL_ORE,
+            BlockType.WATER
+        )
+        
+        for (i in 1..minOf(9, blockTypes.size)) {
+            val key = GLFW.GLFW_KEY_0 + i
+            if (window.isKeyPressed(key)) {
+                blockInteractionManager.setSelectedBlockType(blockTypes[i - 1])
+                // Small delay to prevent multiple selections
+                try {
+                    Thread.sleep(100)
+                } catch (e: InterruptedException) {
+                    e.printStackTrace()
+                }
             }
         }
     }

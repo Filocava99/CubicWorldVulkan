@@ -926,22 +926,42 @@ class VulkanIntegration {
         // Get a unique ID for this chunk
         val chunkId = getCubicChunkId(chunk)
         
-        // Check if this chunk mesh is already loaded
+        // Check if this chunk mesh is already loaded and clean
         val existingMesh = cubicChunkMeshCache[chunkId]
-        if (existingMesh != null && !chunk.isDirty() && existingMesh.modelId == modelData.modelId) {
-            println("Cubic chunk $chunkId is already loaded with the same mesh. Skipping.")
+        if (existingMesh != null && !chunk.isDirty()) {
+            println("DEBUG: Cubic chunk $chunkId is already loaded and clean. Skipping.")
             return chunkId
+        }
+        
+        if (chunk.isDirty()) {
+            println("DEBUG: Chunk $chunkId is dirty, regenerating mesh")
+        } else {
+            println("DEBUG: Chunk $chunkId is clean but mesh needs update")
         }
         
         // Store the mesh for future reference
         cubicChunkMeshCache[chunkId] = modelData
         
-        // Check if entity already exists
+        // Check if entity already exists and remove it
         val entities = vulkanScene.getEntitiesByModelId(modelData.modelId)
         val existingEntity = entities?.find { it.getId() == chunkId }
         if (existingEntity != null) {
             vulkanScene.removeEntity(existingEntity)
-            println("Removed existing entity for cubic chunk $chunkId")
+            println("DEBUG: Removed existing entity for cubic chunk $chunkId with model ID ${modelData.modelId}")
+        } else {
+            println("DEBUG: No existing entity found for cubic chunk $chunkId")
+        }
+        
+        // Also check for any entity with the chunk ID but different model ID
+        val allEntitiesMap = vulkanScene.entitiesMap
+        var oldEntityWithSameChunkId: Entity? = null
+        for (entityList in allEntitiesMap.values) {
+            oldEntityWithSameChunkId = entityList.find { it.id == chunkId }
+            if (oldEntityWithSameChunkId != null) break
+        }
+        if (oldEntityWithSameChunkId != null) {
+            vulkanScene.removeEntity(oldEntityWithSameChunkId)
+            println("DEBUG: Removed old entity with same chunk ID $chunkId but different model ID")
         }
         
         // Check if this model was already loaded to the renderer
@@ -991,7 +1011,20 @@ class VulkanIntegration {
         
         // Add entity to scene
         vulkanScene.addEntity(entity)
-        println("Added entity for cubic chunk $chunkId with model ID ${modelData.modelId}")
+        println("DEBUG: Added NEW entity for cubic chunk $chunkId with model ID ${modelData.modelId}")
+        
+        // Verify entity was actually added
+        val allEntitiesAfterAdd = vulkanScene.entitiesMap
+        var verifyEntity: Entity? = null
+        for (entityList in allEntitiesAfterAdd.values) {
+            verifyEntity = entityList.find { it.id == entity.id }
+            if (verifyEntity != null) break
+        }
+        if (verifyEntity != null) {
+            println("DEBUG: Entity addition verified - entity ${entity.id} is now in scene")
+        } else {
+            println("ERROR: Entity addition failed - entity ${entity.id} not found in scene")
+        }
         
         // Mark chunk as clean
         chunk.markClean()

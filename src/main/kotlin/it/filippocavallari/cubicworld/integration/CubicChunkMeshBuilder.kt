@@ -39,6 +39,8 @@ class CubicChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
      * Build an optimized mesh from cubic chunk data
      */
     fun buildMesh(chunk: CubicChunk): ModelData {
+        println("DEBUG: CubicChunkMeshBuilder.buildMesh called for chunk (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z}), isDirty: ${chunk.isDirty()}")
+        
         // Clear previous mesh data
         positions.clear()
         textCoords.clear()
@@ -390,11 +392,16 @@ class CubicChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
             ))
         }
         
-        // Generate unique ID
-        val modelId = if (direction != null) {
-            "cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}_${direction.name}"
+        // Generate unique ID that includes content hash for proper cache invalidation
+        val contentHash = if (meshDataList.isNotEmpty() && meshDataList[0].positions.isNotEmpty()) {
+            meshDataList[0].positions.hashCode()
         } else {
-            "cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}"
+            0
+        }
+        val modelId = if (direction != null) {
+            "cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}_${direction.name}_$contentHash"
+        } else {
+            "cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}_$contentHash"
         }
         
         if (vertexCount > 0 && totalFacesGenerated % 1000 == 0) {
@@ -408,7 +415,7 @@ class CubicChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
      * Create empty model for empty chunks
      */
     private fun createEmptyModel(chunk: CubicChunk): ModelData {
-        val modelId = "empty_cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}"
+        val modelId = "empty_cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}_0"
         return ModelData(modelId, ArrayList(), ArrayList())
     }
 }

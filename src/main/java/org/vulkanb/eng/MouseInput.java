@@ -37,8 +37,12 @@ public class MouseInput {
         });
         glfwSetCursorEnterCallback(windowHandle, (handle, entered) -> inWindow = entered);
         glfwSetMouseButtonCallback(windowHandle, (handle, button, action, mode) -> {
-            leftButtonPressed = button == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS;
-            rightButtonPressed = button == GLFW_MOUSE_BUTTON_2 && action == GLFW_PRESS;
+            if (button == GLFW_MOUSE_BUTTON_1) {
+                leftButtonPressed = action == GLFW_PRESS;
+            }
+            if (button == GLFW_MOUSE_BUTTON_2) {
+                rightButtonPressed = action == GLFW_PRESS;
+            }
         });
         glfwSetWindowSizeCallback(windowHandle, (handle, w, h) -> {
             windowWidth = w;

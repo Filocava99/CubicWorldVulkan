@@ -211,8 +211,13 @@ class CubicWorld(
         val chunkY = CubicChunk.worldToChunk(y)
         val chunkZ = CubicChunk.worldToChunk(z)
         
-        // Get the chunk
-        val chunk = getChunk(chunkX, chunkY, chunkZ) ?: return 0 // Return air for unloaded chunks
+        // Get the chunk, loading it synchronously if needed for block access
+        var chunk = getChunk(chunkX, chunkY, chunkZ)
+        if (chunk == null) {
+            // For raycasting and block queries, load the chunk synchronously
+            println("DEBUG: Loading chunk ($chunkX, $chunkY, $chunkZ) synchronously for block query")
+            chunk = loadChunkSynchronously(chunkX, chunkY, chunkZ)
+        }
         
         // Convert to local coordinates within the chunk
         val localX = CubicChunk.worldToLocal(x)
@@ -226,26 +231,41 @@ class CubicWorld(
      * Set a block at the specified world position
      */
     fun setBlock(x: Int, y: Int, z: Int, blockId: Int) {
+        println("DEBUG: CubicWorld.setBlock called for position ($x, $y, $z) with blockId $blockId")
+        
         // Convert to chunk coordinates
         val chunkX = CubicChunk.worldToChunk(x)
         val chunkY = CubicChunk.worldToChunk(y)
         val chunkZ = CubicChunk.worldToChunk(z)
         
-        // Get the chunk
-        val chunk = getChunk(chunkX, chunkY, chunkZ) ?: return // Ignore if chunk is not loaded
+        println("DEBUG: Converted to chunk coordinates ($chunkX, $chunkY, $chunkZ)")
+        
+        // Get the chunk, loading it synchronously if not loaded
+        var chunk = getChunk(chunkX, chunkY, chunkZ)
+        if (chunk == null) {
+            println("DEBUG: Chunk at ($chunkX, $chunkY, $chunkZ) is not loaded - loading synchronously for block interaction")
+            chunk = loadChunkSynchronously(chunkX, chunkY, chunkZ)
+            println("DEBUG: Chunk loaded synchronously, proceeding with block change")
+        }
         
         // Convert to local coordinates within the chunk
         val localX = CubicChunk.worldToLocal(x)
         val localY = CubicChunk.worldToLocal(y)
         val localZ = CubicChunk.worldToLocal(z)
         
+        println("DEBUG: Local chunk coordinates: ($localX, $localY, $localZ)")
+        
         // Set the block
         chunk.setBlock(localX, localY, localZ, blockId)
+        
+        println("DEBUG: Block set in chunk, notifying ${chunkListeners.size} listeners")
         
         // Notify listeners that chunk is updated
         for (listener in chunkListeners) {
             listener.onChunkUpdated(chunk)
         }
+        
+        println("DEBUG: All chunk listeners notified")
     }
     
     /**
