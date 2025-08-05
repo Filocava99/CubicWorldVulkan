@@ -21,8 +21,8 @@ class CubicChunkManager(
         const val VERTICAL_RENDER_DISTANCE = 4 // Chunks in Y direction (up/down)
         const val LOAD_THRESHOLD_BLOCKS = 8 // Start loading new chunks when within 8 blocks of edge
         const val MAX_CHUNKS_PER_FRAME = 2 // Limit chunk loading per frame
-        const val UNLOAD_DISTANCE_HORIZONTAL = 10 // Unload chunks beyond this distance
-        const val UNLOAD_DISTANCE_VERTICAL = 6 // Vertical unload distance
+        const val UNLOAD_DISTANCE_HORIZONTAL = 12 // Unload chunks beyond this distance (increased to prevent aggressive unloading)
+        const val UNLOAD_DISTANCE_VERTICAL = 8 // Vertical unload distance (increased to prevent aggressive unloading)
         const val MAX_LOADED_CHUNKS = 2000 // Much higher limit due to smaller chunks
     }
     
@@ -287,7 +287,7 @@ class CubicChunkManager(
         val chunksToUnload = mutableListOf<Vector3i>()
         
         // Find chunks that are too far away
-        for ((chunkPos, chunkInfo) in loadedChunks) {
+        for ((chunkPos, _) in loadedChunks) {
             val dx = chunkPos.x - playerChunkX
             val dy = chunkPos.y - playerChunkY
             val dz = chunkPos.z - playerChunkZ
@@ -295,8 +295,16 @@ class CubicChunkManager(
             val horizontalDist = sqrt((dx * dx + dz * dz).toDouble())
             val verticalDist = abs(dy)
             
-            if (horizontalDist > UNLOAD_DISTANCE_HORIZONTAL || 
-                verticalDist > UNLOAD_DISTANCE_VERTICAL) {
+            // Only unload chunks that are beyond the render distance with a safety buffer
+            // HORIZONTAL_RENDER_DISTANCE = 8 means we load chunks from -8 to +8 in X/Z directions
+            // VERTICAL_RENDER_DISTANCE = 4 means we load chunks from -4 to +4 in Y direction
+            // The maximum distance for a chunk in the horizontal render area is sqrt(8*8 + 8*8) = ~11.31
+            // We add a buffer to ensure we never unload chunks that should be visible
+            val maxHorizontalRenderDistance = HORIZONTAL_RENDER_DISTANCE + 0.5 // Safety buffer
+            val maxVerticalRenderDistance = VERTICAL_RENDER_DISTANCE + 0.5 // Safety buffer
+            
+            if ((horizontalDist > maxHorizontalRenderDistance && horizontalDist > UNLOAD_DISTANCE_HORIZONTAL) || 
+                (verticalDist > maxVerticalRenderDistance && verticalDist > UNLOAD_DISTANCE_VERTICAL)) {
                 chunksToUnload.add(chunkPos)
             }
         }

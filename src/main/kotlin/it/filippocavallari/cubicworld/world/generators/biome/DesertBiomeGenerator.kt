@@ -116,8 +116,9 @@ class DesertBiomeGenerator : AbstractBiomeGenerator() {
     ) {
         val chunkX = chunk.position.x
         val chunkZ = chunk.position.y
-        val endX = min(startX + width, Chunk.SIZE)
-        val endZ = min(startZ + length, Chunk.SIZE)
+        // Calculate bounds (not used in current implementation)
+        // val endX = min(startX + width, Chunk.SIZE)
+        // val endZ = min(startZ + length, Chunk.SIZE)
         val random = java.util.Random(seed + chunkX * 341873128712L + chunkZ * 132897987541L)
         
         // Calculate number of features to generate - deserts have sparse vegetation

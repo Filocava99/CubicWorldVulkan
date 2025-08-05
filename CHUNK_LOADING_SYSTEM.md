@@ -23,7 +23,7 @@ Loading Priority (distance from center):
 
 ### **Memory Management**
 - **Conservative Limits**: Max 100 descriptor sets to prevent Vulkan pool exhaustion
-- **Automatic Unloading**: Chunks beyond distance 3 are automatically unloaded
+- **Automatic Unloading**: Chunks beyond distance 4 are automatically unloaded (increased to prevent aggressive unloading of nearby chunks)
 - **Resource Tracking**: Monitor vertex buffers and descriptor set usage
 
 ## 🎮 Usage
@@ -48,7 +48,7 @@ Loading Priority (distance from center):
 const val RENDER_DISTANCE = 2        // 4x4 grid (2 chunks each direction)
 const val LOAD_THRESHOLD_BLOCKS = 8  // Preload when within 8 blocks of edge
 const val MAX_CHUNKS_PER_FRAME = 1   // Smooth loading (1 chunk per frame)
-const val UNLOAD_DISTANCE = 3        // Unload chunks beyond this distance
+const val UNLOAD_DISTANCE = 4        // Unload chunks beyond this distance (increased to prevent aggressive unloading)
 ```
 
 ### **Performance Optimizations**

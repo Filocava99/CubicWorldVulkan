@@ -12,8 +12,8 @@ class PlainsBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 4
     override val name: String = "Plains"
-    override val temperature: Float = 0.6f  // Moved slightly left
-    override val humidity: Float = 0.3f    // Moved down for better separation
+    override val temperature: Float = 0.55f  // Moderate temperature for grasslands
+    override val humidity: Float = 0.4f     // Moderate humidity for grass growth
     
     /**
      * Get the height for plains biome - gentle rolling hills
@@ -47,8 +47,9 @@ class PlainsBiomeGenerator : AbstractBiomeGenerator() {
     ) {
         val chunkX = chunk.position.x
         val chunkZ = chunk.position.y
-        val endX = min(startX + width, Chunk.SIZE)
-        val endZ = min(startZ + length, Chunk.SIZE)
+        // Calculate bounds (not used in current implementation)
+        // val endX = min(startX + width, Chunk.SIZE)
+        // val endZ = min(startZ + length, Chunk.SIZE)
         val random = java.util.Random(seed + chunkX * 341873128712L + chunkZ * 132897987541L)
         
         // Very sparse tree coverage for plains

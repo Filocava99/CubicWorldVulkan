@@ -133,8 +133,9 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
             OreType(BlockType.LAPIS_ORE.id, 5, 5, 48, 4, seed)      // Increased max height
         )
         
-        val endX = min(startX + width, Chunk.SIZE)
-        val endZ = min(startZ + length, Chunk.SIZE)
+        // Calculate bounds (not used in current implementation)
+        // val endX = min(startX + width, Chunk.SIZE)
+        // val endZ = min(startZ + length, Chunk.SIZE)
         val random = java.util.Random(seed + chunk.position.x * 341873128712L + chunk.position.y * 132897987541L)
         
         for (ore in oreTypes) {
@@ -172,8 +173,8 @@ abstract class AbstractBiomeGenerator : BiomeGenerator {
         val ellipsoidB = 1.0 + random.nextDouble() * veinSize / 2.0
         val ellipsoidC = 1.0 + random.nextDouble() * veinSize / 2.0
         
-        // Cached square of radius for optimization
-        val radiusSquared = veinSize * veinSize
+        // Cached square of radius for optimization (not used in ellipsoid calculation)
+        // val radiusSquared = veinSize * veinSize
         
         // Iterate through a cube containing our ellipsoid
         for (x in max(0, centerX - veinSize)..min(Chunk.SIZE - 1, centerX + veinSize)) {

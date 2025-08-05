@@ -14,8 +14,8 @@ class MountainBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 3
     override val name: String = "Mountains"
-    override val temperature: Float = 0.2f  // Moved to cold range
-    override val humidity: Float = 0.4f    // Lowered for better distribution
+    override val temperature: Float = 0.15f  // Very cold for high altitude
+    override val humidity: Float = 0.3f     // Lower humidity for mountain climate
     
     /**
      * Override the surface generation for mountains
@@ -130,8 +130,9 @@ class MountainBiomeGenerator : AbstractBiomeGenerator() {
     ) {
         val chunkX = chunk.position.x
         val chunkZ = chunk.position.y
-        val endX = min(startX + width, Chunk.SIZE)
-        val endZ = min(startZ + length, Chunk.SIZE)
+        // Calculate bounds (not used in current implementation)
+        // val endX = min(startX + width, Chunk.SIZE)
+        // val endZ = min(startZ + length, Chunk.SIZE)
         val random = java.util.Random(seed + chunkX * 341873128712L + chunkZ * 132897987541L)
         
         // Calculate number of features to generate - mountains have sparse vegetation

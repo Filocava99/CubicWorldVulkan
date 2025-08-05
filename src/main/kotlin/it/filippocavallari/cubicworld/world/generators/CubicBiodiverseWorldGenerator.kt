@@ -9,6 +9,8 @@ import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 /**
  * CubicChunk-native BiodiverseWorldGenerator.
@@ -180,13 +182,61 @@ class CubicBiodiverseWorldGenerator(
     }
     
     /**
-     * Get biome at world coordinates with caching
+     * Get biome at world coordinates with caching and smooth transitions
      */
     private fun getBiomeAt(worldX: Int, worldZ: Int): BiomeGenerator {
         val cacheKey = Vector2i(worldX, worldZ)
         return biomeCache.getOrPut(cacheKey) {
-            calculateBiomeAt(worldX, worldZ)
+            if (ENABLE_SMOOTH_BIOME_TRANSITIONS) {
+                // Use cubic interpolation for smoother biome transitions
+                getInterpolatedBiomeAt(worldX, worldZ)
+            } else {
+                // Direct calculation for better performance
+                calculateBiomeAt(worldX, worldZ)
+            }
         }
+    }
+    
+    /**
+     * Get interpolated biome using efficient cubic sampling for smooth transitions
+     */
+    private fun getInterpolatedBiomeAt(worldX: Int, worldZ: Int): BiomeGenerator {
+        // Use a smaller, more efficient sampling pattern - just 4 cardinal points
+        val sampleDistance = 8 // Reduced for better performance
+        val samples = mutableMapOf<BiomeGenerator, Float>()
+        
+        // Sample at current position and 4 cardinal directions
+        val samplePoints = arrayOf(
+            Pair(0, 0),           // Center
+            Pair(sampleDistance, 0),      // East
+            Pair(-sampleDistance, 0),     // West  
+            Pair(0, sampleDistance),      // South
+            Pair(0, -sampleDistance)      // North
+        )
+        
+        for ((dx, dz) in samplePoints) {
+            val sampleX = worldX + dx
+            val sampleZ = worldZ + dz
+            
+            val biome = calculateBiomeAt(sampleX, sampleZ)
+            val distance = sqrt((dx * dx + dz * dz).toFloat())
+            
+            // Use cubic falloff for smooth interpolation
+            val weight = if (distance == 0.0f) 2.0f else cubicFalloff(distance / sampleDistance.toFloat())
+            
+            samples[biome] = (samples[biome] ?: 0.0f) + weight
+        }
+        
+        // Return the biome with the highest weighted influence
+        return samples.maxByOrNull { it.value }?.key ?: calculateBiomeAt(worldX, worldZ)
+    }
+    
+    /**
+     * Cubic falloff function for smooth interpolation
+     */
+    private fun cubicFalloff(t: Float): Float {
+        val clamped = t.coerceIn(0.0f, 1.0f)
+        return 1.0f - (clamped * clamped * (3.0f - 2.0f * clamped))
     }
     
     /**
@@ -230,22 +280,34 @@ class CubicBiodiverseWorldGenerator(
         var humidity = (baseHumidityNoise + 1.0f) * 0.5f + continentalHumidityShift
         
         // Add coordinate-based variation to ensure all climate zones are represented
-        temperature += worldClimateX * 0.3f - 0.15f  // ±0.15 variation based on X coordinate
-        humidity += worldClimateZ * 0.3f - 0.15f     // ±0.15 variation based on Z coordinate
+        // Increased variation to ensure better coverage of all climate ranges
+        temperature += worldClimateX * 0.4f - 0.2f  // ±0.2 variation based on X coordinate
+        humidity += worldClimateZ * 0.4f - 0.2f     // ±0.2 variation based on Z coordinate
         
         // Enhance contrast and clamp
         temperature = enhanceContrast(temperature).coerceIn(0.0f, 1.0f)
         humidity = enhanceContrast(humidity).coerceIn(0.0f, 1.0f)
         
-        return biomeRegistry.getBiomeByClimate(temperature, humidity)
+        val biome = biomeRegistry.getBiomeByClimate(temperature, humidity)
+        
+        // Minimal spawn area logging (only for center chunk)
+        if (worldX == 0 && worldZ == 0) {
+            println("SPAWN BIOME - Center (0,0): ${biome.name}, Temp: ${"%.2f".format(temperature)}, Humidity: ${"%.2f".format(humidity)}")
+        }
+        
+        return biome
     }
     
     /**
-     * Enhance contrast in climate values
+     * Enhance contrast in climate values to ensure all biome types are represented
+     * Uses a more balanced distribution function
      */
     private fun enhanceContrast(value: Float): Float {
         val normalized = value.coerceIn(0.0f, 1.0f)
-        return (normalized * normalized * (3.0f - 2.0f * normalized))
+        
+        // Use a power function that maintains better middle-range representation
+        // This creates more even distribution across all climate ranges
+        return normalized.pow(0.8f)
     }
     
     /**
@@ -320,5 +382,8 @@ class CubicBiodiverseWorldGenerator(
         const val MAX_HEIGHT = 240
         const val SEA_LEVEL = 62
         const val BEDROCK_LEVEL = 5
+        
+        // Biome transition settings
+        const val ENABLE_SMOOTH_BIOME_TRANSITIONS = true // Set to false for better performance
     }
 }

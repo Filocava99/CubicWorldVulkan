@@ -17,8 +17,8 @@ class MagicalForestBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 100 // Using high IDs for mod-inspired biomes
     override val name: String = "Magical Forest"
-    override val temperature: Float = 0.4f  // Moved to cool-temperate range
-    override val humidity: Float = 0.9f    // Moved to very humid range
+    override val temperature: Float = 0.35f  // Cool mystical climate
+    override val humidity: Float = 0.85f     // Very humid for magical growth
     
     /**
      * Override the surface generation for magical forest
@@ -147,8 +147,9 @@ class MagicalForestBiomeGenerator : AbstractBiomeGenerator() {
     ) {
         val chunkX = chunk.position.x
         val chunkZ = chunk.position.y
-        val endX = min(startX + width, Chunk.SIZE)
-        val endZ = min(startZ + length, Chunk.SIZE)
+        // Calculate bounds (not used in current implementation)
+        // val endX = min(startX + width, Chunk.SIZE)
+        // val endZ = min(startZ + length, Chunk.SIZE)
         val random = java.util.Random(seed + chunkX * 341873128712L + chunkZ * 132897987541L)
         
         // Calculate number of features to generate

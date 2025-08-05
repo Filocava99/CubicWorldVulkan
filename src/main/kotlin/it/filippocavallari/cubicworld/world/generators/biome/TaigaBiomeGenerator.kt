@@ -13,8 +13,8 @@ class TaigaBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 6
     override val name: String = "Taiga"
-    override val temperature: Float = 0.1f  // Moved to very cold range
-    override val humidity: Float = 0.7f    // Lowered slightly
+    override val temperature: Float = 0.25f  // Cold but not frozen
+    override val humidity: Float = 0.6f     // Moderate humidity for conifers
     
     /**
      * Get the height for taiga biome - moderate hills
@@ -48,8 +48,9 @@ class TaigaBiomeGenerator : AbstractBiomeGenerator() {
     ) {
         val chunkX = chunk.position.x
         val chunkZ = chunk.position.y
-        val endX = min(startX + width, Chunk.SIZE)
-        val endZ = min(startZ + length, Chunk.SIZE)
+        // Calculate bounds (not used in current implementation)
+        // val endX = min(startX + width, Chunk.SIZE)
+        // val endZ = min(startZ + length, Chunk.SIZE)
         val random = java.util.Random(seed + chunkX * 341873128712L + chunkZ * 132897987541L)
         
         // Dense forest coverage for taiga

@@ -18,7 +18,7 @@ class ChunkManager(
         const val RENDER_DISTANCE = 2 // 4x4 grid (2 chunks in each direction from center)
         const val LOAD_THRESHOLD_BLOCKS = 8 // Start loading new chunks when within 8 blocks of edge
         const val MAX_CHUNKS_PER_FRAME = 1 // Limit chunk loading per frame for smooth performance
-        const val UNLOAD_DISTANCE = 3 // Unload chunks beyond this distance
+        const val UNLOAD_DISTANCE = 4 // Unload chunks beyond this distance (increased to prevent aggressive unloading)
     }
     
     // Data class to store chunk information
@@ -220,13 +220,19 @@ class ChunkManager(
         val chunksToUnload = mutableListOf<Vector2i>()
         
         // Find chunks that are too far away
-        for ((chunkPos, chunkInfo) in loadedChunks) {
+        for ((chunkPos, _) in loadedChunks) {
             val distance = getDistanceFromCenter(
                 chunkPos.x - playerChunkX,
                 chunkPos.y - playerChunkZ
             )
             
-            if (distance > UNLOAD_DISTANCE) {
+            // Only unload chunks that are beyond the render distance with a safety buffer
+            // RENDER_DISTANCE = 2 means we load in a 4x4 grid (chunks from -2 to +2 in each direction)
+            // The maximum distance for a chunk in this grid is sqrt(2*2 + 2*2) = ~2.83
+            // We add a buffer to ensure we never unload chunks that should be visible
+            val maxRenderDistance = RENDER_DISTANCE + 0.5 // Safety buffer
+            if (distance > maxRenderDistance && distance > UNLOAD_DISTANCE) {
+                println("DEBUG: Marking chunk (${chunkPos.x}, ${chunkPos.y}) for unload - distance: ${"%.2f".format(distance)} > ${"%.2f".format(maxRenderDistance)}")
                 chunksToUnload.add(chunkPos)
             }
         }

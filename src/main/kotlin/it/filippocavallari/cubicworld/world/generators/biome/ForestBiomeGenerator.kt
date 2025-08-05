@@ -15,8 +15,8 @@ class ForestBiomeGenerator : AbstractBiomeGenerator() {
     
     override val id: Int = 1
     override val name: String = "Forest"
-    override val temperature: Float = 0.5f  // Moved to center-left
-    override val humidity: Float = 0.5f    // Moved to center
+    override val temperature: Float = 0.45f  // Temperate forest climate
+    override val humidity: Float = 0.65f     // Forests need more humidity
     
     /**
      * Get the height for the forest biome - gentle hills
@@ -202,13 +202,13 @@ class ForestBiomeGenerator : AbstractBiomeGenerator() {
      * Generate undergrowth like grass and flowers
      */
     private fun generateUndergrowth(
-        chunk: Chunk,
-        startX: Int,
-        startZ: Int,
-        endX: Int,
-        endZ: Int,
-        heightMap: Array<IntArray>,
-        random: java.util.Random
+        @Suppress("UNUSED_PARAMETER") chunk: Chunk,
+        @Suppress("UNUSED_PARAMETER") startX: Int,
+        @Suppress("UNUSED_PARAMETER") startZ: Int,
+        @Suppress("UNUSED_PARAMETER") endX: Int,
+        @Suppress("UNUSED_PARAMETER") endZ: Int,
+        @Suppress("UNUSED_PARAMETER") heightMap: Array<IntArray>,
+        @Suppress("UNUSED_PARAMETER") random: java.util.Random
     ) {
         // We'd want to add tall grass and flowers here
         // For now, we don't have a proper implementation since the BlockType enum

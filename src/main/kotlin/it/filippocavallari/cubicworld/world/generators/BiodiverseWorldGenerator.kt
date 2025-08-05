@@ -9,6 +9,7 @@ import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 
 /**
  * A world generator inspired by Minecraft's modern biome system and popular mods
@@ -234,8 +235,9 @@ class BiodiverseWorldGenerator(
                 var humidity = (baseHumidityNoise + 1.0f) * 0.5f + continentalHumidityShift
                 
                 // Add coordinate-based variation to ensure all climate zones are represented
-                temperature += worldClimateX * 0.3f - 0.15f  // ±0.15 variation based on X coordinate
-                humidity += worldClimateZ * 0.3f - 0.15f     // ±0.15 variation based on Z coordinate
+                // Increased variation to ensure better coverage of all climate ranges
+                temperature += worldClimateX * 0.4f - 0.2f  // ±0.2 variation based on X coordinate
+                humidity += worldClimateZ * 0.4f - 0.2f     // ±0.2 variation based on Z coordinate
                 
                 // Enhance contrast to ensure all biome types appear
                 temperature = enhanceContrast(temperature)
@@ -260,12 +262,15 @@ class BiodiverseWorldGenerator(
         }
         
         // Print biome distribution for this chunk
-        if (biomeCounts.size > 1) {
-            println("Chunk ($chunkX, $chunkZ) biome distribution:")
-            for ((biomeName, count) in biomeCounts.toList().sortedByDescending { it.second }) {
-                val percentage = (count * 100) / (Chunk.SIZE * Chunk.SIZE)
-                println("  - $biomeName: $count blocks ($percentage%)")
-            }
+        println("Chunk ($chunkX, $chunkZ) biome distribution:")
+        for ((biomeName, count) in biomeCounts.toList().sortedByDescending { it.second }) {
+            val percentage = (count * 100) / (Chunk.SIZE * Chunk.SIZE)
+            println("  - $biomeName: $count blocks ($percentage%)")
+        }
+        
+        // Special logging for spawn area (chunks around 0,0)
+        if (chunkX in -2..2 && chunkZ in -2..2) {
+            println("SPAWN AREA - Chunk ($chunkX, $chunkZ) - Main biome: ${biomeCounts.maxByOrNull { it.value }?.key}")
         }
         
         return biomeMap
@@ -273,11 +278,14 @@ class BiodiverseWorldGenerator(
     
     /**
      * Enhance contrast in climate values to ensure all biome types are represented
+     * Uses a more balanced distribution function
      */
     private fun enhanceContrast(value: Float): Float {
-        // Apply S-curve to enhance contrast
         val normalized = value.coerceIn(0.0f, 1.0f)
-        return (normalized * normalized * (3.0f - 2.0f * normalized))
+        
+        // Use a power function that maintains better middle-range representation
+        // This creates more even distribution across all climate ranges
+        return normalized.pow(0.8f)
     }
     
     /**
