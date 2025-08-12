@@ -104,7 +104,7 @@ public class ShadowRenderActivity {
     private void createPipeline(PipelineCache pipelineCache) {
         Pipeline.PipeLineCreationInfo pipeLineCreationInfo = new Pipeline.PipeLineCreationInfo(
                 shadowsFrameBuffer.getRenderPass().getVkRenderPass(), shaderProgram,
-                GeometryAttachments.NUMBER_COLOR_ATTACHMENTS, true, true, 0,
+                GeometryAttachments.NUMBER_COLOR_ATTACHMENTS, true, true, false, 0,
                 new InstancedVertexBufferStructure(), descriptorSetLayouts);
         pipeLine = new Pipeline(pipelineCache, pipeLineCreationInfo);
         pipeLineCreationInfo.cleanup();

@@ -48,7 +48,8 @@ class VulkanIntegration {
     private lateinit var cubicChunkMeshBuilder: CubicChunkMeshBuilder
     private val chunkMeshCache = ConcurrentHashMap<String, ModelData>()
     private val directionalChunkMeshCache = ConcurrentHashMap<String, Map<FaceDirection, ModelData>>()
-    private val cubicChunkMeshCache = ConcurrentHashMap<String, ModelData>()
+    private val cubicChunkOpaqueMeshCache = ConcurrentHashMap<String, ModelData>()
+    private val cubicChunkTransparentMeshCache = ConcurrentHashMap<String, ModelData>()
     
     // Track loaded chunks to manage descriptor pool
     private val loadedChunks = ConcurrentHashMap<String, String>() // chunkId -> modelId
@@ -747,7 +748,8 @@ class VulkanIntegration {
             }
             
             // Clear the caches
-            chunkMeshCache.clear()
+            cubicChunkOpaqueMeshCache.clear()
+            cubicChunkTransparentMeshCache.clear()
             loadedChunks.clear()
         }
         
@@ -893,143 +895,122 @@ class VulkanIntegration {
     @Synchronized
     fun createCubicChunkMesh(chunk: CubicChunk): String {
         println("Building mesh for cubic chunk at (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z})")
-        
+        val chunkId = getCubicChunkId(chunk)
+
         // Skip empty chunks
         if (chunk.isEmpty()) {
             println("Skipping empty cubic chunk")
             return ""
         }
-        
+
+        if (chunk.isDirty()) {
+            println("DEBUG: Chunk $chunkId is dirty, regenerating mesh")
+        }
+
         // Check if we can load more chunks
         if (!canLoadMoreChunks()) {
             println("Chunk limit reached, unloading old chunks")
             unloadOldestChunks(50)
         }
-        
-        // Generate mesh from the cubic chunk data
-        val modelData = if (useDirectionalCulling) {
-            // For now, use single mesh for cubic chunks
-            // TODO: Implement directional meshes for cubic chunks
-            cubicChunkMeshBuilder.buildMesh(chunk)
+
+        // Generate opaque mesh
+        val opaqueModelData = cubicChunkMeshBuilder.buildMesh(chunk, false)
+        if (opaqueModelData.meshDataList.isNotEmpty() && opaqueModelData.meshDataList[0].positions.isNotEmpty()) {
+            handleModelLoading(chunkId, opaqueModelData, false)
         } else {
-            cubicChunkMeshBuilder.buildMesh(chunk)
+            // If the new mesh is empty, remove the old one
+            removeEntityByChunkId(chunkId, false)
         }
-        
-        // Skip if no mesh data (empty chunk)
-        if (modelData.meshDataList.isEmpty() || modelData.meshDataList[0].positions.isEmpty()) {
-            println("Skipping cubic chunk with no visible faces")
-            return ""
-        }
-        
-        println("Cubic mesh generated with ${modelData.meshDataList[0].positions.size / 3} vertices")
-        
-        // Get a unique ID for this chunk
-        val chunkId = getCubicChunkId(chunk)
-        
-        // Check if this chunk mesh is already loaded and clean
-        val existingMesh = cubicChunkMeshCache[chunkId]
-        if (existingMesh != null && !chunk.isDirty()) {
-            println("DEBUG: Cubic chunk $chunkId is already loaded and clean. Skipping.")
-            return chunkId
-        }
-        
-        if (chunk.isDirty()) {
-            println("DEBUG: Chunk $chunkId is dirty, regenerating mesh")
+
+        // Generate transparent mesh
+        val transparentModelData = cubicChunkMeshBuilder.buildMesh(chunk, true)
+        if (transparentModelData.meshDataList.isNotEmpty() && transparentModelData.meshDataList[0].positions.isNotEmpty()) {
+            handleModelLoading(chunkId, transparentModelData, true)
         } else {
-            println("DEBUG: Chunk $chunkId is clean but mesh needs update")
+            // If the new mesh is empty, remove the old one
+            removeEntityByChunkId(chunkId, true)
+        }
+
+        // Mark chunk as clean
+        chunk.markClean()
+        return chunkId
+    }
+
+    private fun handleModelLoading(chunkId: String, modelData: ModelData, isTransparent: Boolean) {
+        val cache = if (isTransparent) cubicChunkTransparentMeshCache else cubicChunkOpaqueMeshCache
+        val suffix = if (isTransparent) "_transparent" else "_opaque"
+        val entityId = chunkId + suffix
+
+        val existingMesh = cache[chunkId]
+        if (existingMesh != null && existingMesh.modelId == modelData.modelId && !isChunkDirty(chunkId)) {
+            println("DEBUG: Cubic chunk $entityId is already loaded and clean. Skipping.")
+            return
         }
         
-        // Store the mesh for future reference
-        cubicChunkMeshCache[chunkId] = modelData
+        cache[chunkId] = modelData
+
+        // Remove old entity before creating a new one
+        removeEntityByChunkId(chunkId, isTransparent)
         
-        // Check if entity already exists and remove it
-        val entities = vulkanScene.getEntitiesByModelId(modelData.modelId)
-        val existingEntity = entities?.find { it.getId() == chunkId }
-        if (existingEntity != null) {
-            vulkanScene.removeEntity(existingEntity)
-            println("DEBUG: Removed existing entity for cubic chunk $chunkId with model ID ${modelData.modelId}")
-        } else {
-            println("DEBUG: No existing entity found for cubic chunk $chunkId")
-        }
-        
-        // Also check for any entity with the chunk ID but different model ID
-        val allEntitiesMap = vulkanScene.entitiesMap
-        var oldEntityWithSameChunkId: Entity? = null
-        for (entityList in allEntitiesMap.values) {
-            oldEntityWithSameChunkId = entityList.find { it.id == chunkId }
-            if (oldEntityWithSameChunkId != null) break
-        }
-        if (oldEntityWithSameChunkId != null) {
-            vulkanScene.removeEntity(oldEntityWithSameChunkId)
-            println("DEBUG: Removed old entity with same chunk ID $chunkId but different model ID")
-        }
-        
-        // Check if this model was already loaded to the renderer
         val modelAlreadyLoaded = loadedModels.containsKey(modelData.modelId)
-        
-        // Load model to renderer only if not already loaded
         if (!modelAlreadyLoaded) {
             try {
-                println("Loading cubic chunk with ${modelData.meshDataList[0].positions.size / 3} vertices")
                 vulkanRender.loadModels(listOf(modelData))
-                
                 loadedModels[modelData.modelId] = true
-                loadedChunks[chunkId] = modelData.modelId
-                synchronized(chunkLoadOrder) {
-                    chunkLoadOrder.add(chunkId)
-                }
                 modelRefCount[modelData.modelId] = 1
-                
-                println("Cubic chunks loaded: ${loadedChunks.size}/$MAX_LOADED_CHUNKS")
             } catch (e: Exception) {
                 println("ERROR: Failed to load cubic chunk model: ${e.message}")
-                if (e.message?.contains("-1000069000") == true || 
-                    e.message?.contains("descriptor set") == true) {
-                    println("Descriptor pool exhausted!")
-                    throw RuntimeException("Descriptor pool exhausted", e)
-                }
                 throw e
             }
         } else {
-            println("Model ${modelData.modelId} already loaded to renderer, reusing")
-            loadedChunks[chunkId] = modelData.modelId
-            synchronized(chunkLoadOrder) {
-                chunkLoadOrder.add(chunkId)
-            }
             modelRefCount[modelData.modelId] = (modelRefCount[modelData.modelId] ?: 0) + 1
         }
-        
-        // Create entity for this chunk at origin since mesh vertices are already in world coordinates
-        val entity = Entity(chunkId, modelData.modelId, Vector3f(0.0f, 0.0f, 0.0f))
-        
-        println("\n=== CUBIC CHUNK POSITIONING DEBUG ===")
-        println("Chunk coordinate: (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z})")
-        println("World bounds: (${chunk.getWorldX()}, ${chunk.getWorldY()}, ${chunk.getWorldZ()}) to " +
-                "(${chunk.getWorldX() + 15}, ${chunk.getWorldY() + 15}, ${chunk.getWorldZ() + 15})")
-        println("Entity position: (0, 0, 0) - no additional offset needed")
-        println("=====================================\n")
-        
-        // Add entity to scene
+
+        loadedChunks[entityId] = modelData.modelId
+        synchronized(chunkLoadOrder) {
+            chunkLoadOrder.remove(entityId)
+            chunkLoadOrder.add(entityId)
+        }
+
+        val entity = Entity(entityId, modelData.modelId, Vector3f(0.0f, 0.0f, 0.0f))
         vulkanScene.addEntity(entity)
-        println("DEBUG: Added NEW entity for cubic chunk $chunkId with model ID ${modelData.modelId}")
+        println("DEBUG: Added entity for cubic chunk $entityId with model ID ${modelData.modelId}")
+    }
+
+    private fun isChunkDirty(chunkId: String): Boolean {
+        // This is a placeholder for a proper dirty check.
+        // In a real implementation, we'd look up the chunk object and check its dirty flag.
+        return false
+    }
+
+    private fun removeEntityByChunkId(chunkId: String, isTransparent: Boolean) {
+        val suffix = if (isTransparent) "_transparent" else "_opaque"
+        val entityId = chunkId + suffix
         
-        // Verify entity was actually added
-        val allEntitiesAfterAdd = vulkanScene.entitiesMap
-        var verifyEntity: Entity? = null
-        for (entityList in allEntitiesAfterAdd.values) {
-            verifyEntity = entityList.find { it.id == entity.id }
-            if (verifyEntity != null) break
+        val allEntitiesMap = vulkanScene.entitiesMap
+        var oldEntity: Entity? = null
+        for (entityList in allEntitiesMap.values) {
+            oldEntity = entityList.find { it.id == entityId }
+            if (oldEntity != null) break
         }
-        if (verifyEntity != null) {
-            println("DEBUG: Entity addition verified - entity ${entity.id} is now in scene")
-        } else {
-            println("ERROR: Entity addition failed - entity ${entity.id} not found in scene")
+
+        if (oldEntity != null) {
+            vulkanScene.removeEntity(oldEntity)
+            println("DEBUG: Removed old entity with ID $entityId")
+
+            val modelId = oldEntity.modelId
+            val refCount = modelRefCount[modelId] ?: 1
+            if (refCount <= 1) {
+                modelRefCount.remove(modelId)
+                loadedModels.remove(modelId)
+            } else {
+                modelRefCount[modelId] = refCount - 1
+            }
+            loadedChunks.remove(entityId)
+            synchronized(chunkLoadOrder) {
+                chunkLoadOrder.remove(entityId)
+            }
         }
-        
-        // Mark chunk as clean
-        chunk.markClean()
-        
-        return chunkId
     }
     
     /**

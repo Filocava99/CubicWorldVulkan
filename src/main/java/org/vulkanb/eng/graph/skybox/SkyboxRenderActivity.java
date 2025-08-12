@@ -179,7 +179,7 @@ public class SkyboxRenderActivity {
     private void createPipeline(PipelineCache pipelineCache) {
         Pipeline.PipeLineCreationInfo pipeLineCreationInfo = new Pipeline.PipeLineCreationInfo(
                 renderPass, shaderProgram, 3,
-                true, false, 0, // Enable depth testing, no depth writing for skybox
+                true, false, false, 0, // Enable depth testing, no depth writing for skybox
                 new SkyboxVertexBufferStructure(), skyboxDescriptorSetLayouts);
         pipeline = new Pipeline(pipelineCache, pipeLineCreationInfo);
         pipeLineCreationInfo.cleanup();

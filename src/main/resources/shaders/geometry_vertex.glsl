@@ -15,6 +15,8 @@ layout(location = 1) out vec3 outTangent;
 layout(location = 2) out vec3 outBitangent;
 layout(location = 3) out vec2 outTextCoords;
 layout(location = 4) flat out uint outMatIdx;
+layout(location = 5) out vec3 outWorldPos;
+layout(location = 6) out vec3 outViewVec;
 
 out gl_PerVertex
 {
@@ -31,10 +33,14 @@ layout(set = 1, binding = 0) uniform ViewUniform {
 void main()
 {
     mat4 modelViewMatrix = viewUniform.viewMatrix * entityModelMatrix;
+    vec4 viewPos = modelViewMatrix * vec4(entityPos, 1);
+
     outNormal     = normalize(modelViewMatrix * vec4(entityNormal, 0)).xyz;
     outTangent    = normalize(modelViewMatrix * vec4(entityTangent, 0)).xyz;
     outBitangent  = normalize(modelViewMatrix * vec4(entityBitangent, 0)).xyz;
     outTextCoords = entityTextCoords;
     outMatIdx     = entityMatIdx;
-    gl_Position   = projUniform.projectionMatrix * modelViewMatrix * vec4(entityPos, 1);
+    outWorldPos   = (entityModelMatrix * vec4(entityPos, 1)).xyz;
+    outViewVec    = -viewPos.xyz;
+    gl_Position   = projUniform.projectionMatrix * viewPos;
 }

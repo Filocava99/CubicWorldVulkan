@@ -33,9 +33,11 @@ public class GlobalBuffers {
     private VulkanBuffer[] animInstanceDataBuffers;
     private VulkanBuffer animVerticesBuffer;
     private VulkanBuffer indirectBuffer;
+    private VulkanBuffer transparentIndirectBuffer;
     private VulkanBuffer[] instanceDataBuffers;
     private int numAnimIndirectCommands;
     private int numIndirectCommands;
+    private int numTransparentIndirectCommands;
     private List<VulkanAnimEntity> vulkanAnimEntityList;
 
     public GlobalBuffers(Device device) {
@@ -61,6 +63,9 @@ public class GlobalBuffers {
         indicesBuffer.cleanup();
         if (indirectBuffer != null) {
             indirectBuffer.cleanup();
+        }
+        if (transparentIndirectBuffer != null) {
+            transparentIndirectBuffer.cleanup();
         }
         if (animVerticesBuffer != null) {
             animVerticesBuffer.cleanup();
@@ -126,6 +131,14 @@ public class GlobalBuffers {
 
     public int getNumIndirectCommands() {
         return numIndirectCommands;
+    }
+
+    public VulkanBuffer getTransparentIndirectBuffer() {
+        return transparentIndirectBuffer;
+    }
+
+    public int getNumTransparentIndirectCommands() {
+        return numTransparentIndirectCommands;
     }
 
     public VulkanBuffer getVerticesBuffer() {
@@ -597,18 +610,25 @@ public class GlobalBuffers {
     private void loadStaticEntities(List<VulkanModel> vulkanModelList, Scene scene, CommandPool commandPool,
                                     Queue queue, int numSwapChainImages) {
         numIndirectCommands = 0;
+        numTransparentIndirectCommands = 0;
         try (MemoryStack stack = MemoryStack.stackPush()) {
             Device device = commandPool.getDevice();
             CommandBuffer cmd = new CommandBuffer(commandPool, true, true);
 
-            List<VkDrawIndexedIndirectCommand> indexedIndirectCommandList = new ArrayList<>();
+            List<VkDrawIndexedIndirectCommand> opaqueCommands = new ArrayList<>();
+            List<VkDrawIndexedIndirectCommand> transparentCommands = new ArrayList<>();
             int numInstances = 0;
             int firstInstance = 0;
+
             for (VulkanModel vulkanModel : vulkanModelList) {
                 List<Entity> entities = scene.getEntitiesByModelId(vulkanModel.getModelId());
                 if (entities == null || entities.isEmpty() || vulkanModel.hasAnimations()) {
                     continue;
                 }
+
+                boolean isTransparent = entities.get(0).getId().endsWith("_transparent");
+                List<VkDrawIndexedIndirectCommand> commandList = isTransparent ? transparentCommands : opaqueCommands;
+
                 for (VulkanModel.VulkanMesh vulkanMesh : vulkanModel.getVulkanMeshList()) {
                     VkDrawIndexedIndirectCommand indexedIndirectCommand = VkDrawIndexedIndirectCommand.calloc(stack);
                     indexedIndirectCommand.indexCount(vulkanMesh.numIndices());
@@ -616,16 +636,21 @@ public class GlobalBuffers {
                     indexedIndirectCommand.instanceCount(entities.size());
                     indexedIndirectCommand.vertexOffset(vulkanMesh.verticesOffset() / VertexBufferStructure.SIZE_IN_BYTES);
                     indexedIndirectCommand.firstInstance(firstInstance);
-                    indexedIndirectCommandList.add(indexedIndirectCommand);
+                    commandList.add(indexedIndirectCommand);
 
-                    numIndirectCommands++;
+                    if (isTransparent) {
+                        numTransparentIndirectCommands++;
+                    } else {
+                        numIndirectCommands++;
+                    }
                     firstInstance += entities.size();
                     numInstances += entities.size();
                 }
             }
-            if (numIndirectCommands > 0) {
-                cmd.beginRecording();
 
+            cmd.beginRecording();
+
+            if (numIndirectCommands > 0) {
                 StgByteBuffer indirectStgBuffer = new StgByteBuffer(device, (long) IND_COMMAND_STRIDE * numIndirectCommands);
                 if (indirectBuffer != null) {
                     indirectBuffer.cleanup();
@@ -635,30 +660,41 @@ public class GlobalBuffers {
                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
                 ByteBuffer dataBuffer = indirectStgBuffer.getDataBuffer();
                 VkDrawIndexedIndirectCommand.Buffer indCommandBuffer = new VkDrawIndexedIndirectCommand.Buffer(dataBuffer);
+                opaqueCommands.forEach(indCommandBuffer::put);
+                indirectStgBuffer.recordTransferCommand(cmd, indirectBuffer);
+                indirectStgBuffer.cleanup();
+            }
 
-                indexedIndirectCommandList.forEach(indCommandBuffer::put);
+            if (numTransparentIndirectCommands > 0) {
+                StgByteBuffer transparentIndirectStgBuffer = new StgByteBuffer(device, (long) IND_COMMAND_STRIDE * numTransparentIndirectCommands);
+                if (transparentIndirectBuffer != null) {
+                    transparentIndirectBuffer.cleanup();
+                }
+                transparentIndirectBuffer = new VulkanBuffer(device, transparentIndirectStgBuffer.stgVulkanBuffer.getRequestedSize(),
+                        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+                ByteBuffer dataBuffer = transparentIndirectStgBuffer.getDataBuffer();
+                VkDrawIndexedIndirectCommand.Buffer indCommandBuffer = new VkDrawIndexedIndirectCommand.Buffer(dataBuffer);
+                transparentCommands.forEach(indCommandBuffer::put);
+                transparentIndirectStgBuffer.recordTransferCommand(cmd, transparentIndirectBuffer);
+                transparentIndirectStgBuffer.cleanup();
+            }
 
+            if (numInstances > 0) {
                 if (instanceDataBuffers != null) {
                     Arrays.asList(instanceDataBuffers).forEach(VulkanBuffer::cleanup);
                 }
-                
-                // Add extra safety margin to buffer size (2x)
                 long instanceBufferSize = (long) numInstances * (MAT4X4_SIZE + INT_LENGTH) * 2;
-                System.out.println("Creating instanceDataBuffers with size: " + instanceBufferSize);
-                
                 instanceDataBuffers = new VulkanBuffer[numSwapChainImages];
                 for (int i = 0; i < numSwapChainImages; i++) {
                     instanceDataBuffers[i] = new VulkanBuffer(device, instanceBufferSize,
                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, 0);
                 }
-
-                indirectStgBuffer.recordTransferCommand(cmd, indirectBuffer);
-
-                cmd.endRecording();
-                cmd.submitAndWait(device, queue);
-                cmd.cleanup();
-                indirectStgBuffer.cleanup();
             }
+
+            cmd.endRecording();
+            cmd.submitAndWait(device, queue);
+            cmd.cleanup();
         }
     }
 

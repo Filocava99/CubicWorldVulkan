@@ -38,9 +38,9 @@ class CubicChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
     /**
      * Build an optimized mesh from cubic chunk data
      */
-    fun buildMesh(chunk: CubicChunk): ModelData {
-        println("DEBUG: CubicChunkMeshBuilder.buildMesh called for chunk (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z}), isDirty: ${chunk.isDirty()}")
-        
+    fun buildMesh(chunk: CubicChunk, transparentMesh: Boolean): ModelData {
+        println("DEBUG: CubicChunkMeshBuilder.buildMesh called for chunk (${chunk.position.x}, ${chunk.position.y}, ${chunk.position.z}), isDirty: ${chunk.isDirty()}, transparent: $transparentMesh")
+
         // Clear previous mesh data
         positions.clear()
         textCoords.clear()
@@ -48,45 +48,50 @@ class CubicChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         tangents.clear()
         biTangents.clear()
         indices.clear()
-        
+
         // Skip empty chunks entirely
         if (chunk.isEmpty()) {
-            return createEmptyModel(chunk)
+            return createEmptyModel(chunk, transparentMesh)
         }
-        
+
         var vertexCount = 0
         var facesAdded = 0
-        
+
         // Process all blocks in the cubic chunk
         for (x in 0 until CubicChunk.SIZE) {
             for (y in 0 until CubicChunk.SIZE) {
                 for (z in 0 until CubicChunk.SIZE) {
                     val blockId = chunk.getBlock(x, y, z)
-                    
+                    val block = BlockType.fromId(blockId)
+
                     // Skip air blocks
-                    if (blockId == 0) continue
-                    
+                    if (block == BlockType.AIR) continue
+
+                    if (block.isTransparent != transparentMesh) {
+                        continue
+                    }
+
                     // Convert to world coordinates
                     val worldX = chunk.getWorldX() + x
                     val worldY = chunk.getWorldY() + y
                     val worldZ = chunk.getWorldZ() + z
-                    
+
                     // Add visible faces (check neighbors for occlusion)
                     val prevVertexCount = vertexCount
                     vertexCount = addVisibleFaces(
                         chunk, x, y, z, blockId, vertexCount,
                         worldX.toFloat(), worldY.toFloat(), worldZ.toFloat()
                     )
-                    
+
                     facesAdded += (vertexCount - prevVertexCount) / 4
                 }
             }
         }
-        
+
         totalFacesGenerated += facesAdded
-        
+
         // Create model data
-        return createModelData(chunk, facesAdded, vertexCount)
+        return createModelData(chunk, facesAdded, vertexCount, null, transparentMesh)
     }
     
     /**
@@ -360,14 +365,15 @@ class CubicChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
         chunk: CubicChunk,
         facesAdded: Int,
         vertexCount: Int,
-        direction: FaceDirection? = null
+        direction: FaceDirection? = null,
+        transparentMesh: Boolean = false
     ): ModelData {
         // Create material
         val materialList = ArrayList<ModelData.Material>()
         val diffuseAtlasPath = "${System.getProperty("user.dir")}/src/main/resources/atlas/diffuse_atlas.png"
         val normalAtlasPath = "${System.getProperty("user.dir")}/src/main/resources/atlas/normal_atlas.png"
         val specularAtlasPath = "${System.getProperty("user.dir")}/src/main/resources/atlas/specular_atlas.png"
-        
+
         materialList.add(ModelData.Material(
             diffuseAtlasPath,
             normalAtlasPath,
@@ -376,10 +382,10 @@ class CubicChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
             0.5f,
             0.0f
         ))
-        
+
         // Create mesh data
         val meshDataList = ArrayList<ModelData.MeshData>()
-        
+
         if (positions.isNotEmpty()) {
             meshDataList.add(ModelData.MeshData(
                 positions.toFloatArray(),
@@ -391,31 +397,33 @@ class CubicChunkMeshBuilder(private val textureStitcher: TextureStitcher) {
                 0
             ))
         }
-        
+
         // Generate unique ID that includes content hash for proper cache invalidation
         val contentHash = if (meshDataList.isNotEmpty() && meshDataList[0].positions.isNotEmpty()) {
             meshDataList[0].positions.hashCode()
         } else {
             0
         }
+        val suffix = if (transparentMesh) "_transparent" else ""
         val modelId = if (direction != null) {
-            "cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}_${direction.name}_$contentHash"
+            "cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}_${direction.name}${suffix}_$contentHash"
         } else {
-            "cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}_$contentHash"
+            "cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}${suffix}_$contentHash"
         }
-        
+
         if (vertexCount > 0 && totalFacesGenerated % 1000 == 0) {
             println("Cubic mesh stats: Total faces: $totalFacesGenerated, Culled: $facesculled (${(facesculled * 100.0 / (totalFacesGenerated + facesculled)).toInt()}%)")
         }
-        
+
         return ModelData(modelId, meshDataList, materialList)
     }
-    
+
     /**
      * Create empty model for empty chunks
      */
-    private fun createEmptyModel(chunk: CubicChunk): ModelData {
-        val modelId = "empty_cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}_0"
+    private fun createEmptyModel(chunk: CubicChunk, transparentMesh: Boolean): ModelData {
+        val suffix = if (transparentMesh) "_transparent" else ""
+        val modelId = "empty_cubic_chunk_${chunk.position.x}_${chunk.position.y}_${chunk.position.z}${suffix}_0"
         return ModelData(modelId, ArrayList(), ArrayList())
     }
 }

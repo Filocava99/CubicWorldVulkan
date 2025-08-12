@@ -80,7 +80,7 @@ public class GuiRenderActivity {
 
     private void createPipeline(PipelineCache pipelineCache, long vkRenderPass) {
         Pipeline.PipeLineCreationInfo pipeLineCreationInfo = new Pipeline.PipeLineCreationInfo(vkRenderPass,
-                shaderProgram, 1, false, true, GraphConstants.FLOAT_LENGTH * 2,
+                shaderProgram, 1, false, false, true, GraphConstants.FLOAT_LENGTH * 2,
                 new ImGuiVertexBufferStructure(), descriptorSetLayouts);
         pipeline = new Pipeline(pipelineCache, pipeLineCreationInfo);
         pipeLineCreationInfo.cleanup();

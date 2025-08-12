@@ -67,7 +67,7 @@ public class Pipeline {
                 ds = VkPipelineDepthStencilStateCreateInfo.calloc(stack)
                         .sType(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO)
                         .depthTestEnable(true)
-                        .depthWriteEnable(true)
+                        .depthWriteEnable(pipeLineCreationInfo.depthWriteEnable())
                         .depthCompareOp(VK_COMPARE_OP_LESS_OR_EQUAL)
                         .depthBoundsTestEnable(false)
                         .stencilTestEnable(false);
@@ -104,7 +104,7 @@ public class Pipeline {
             VkPushConstantRange.Buffer vpcr = null;
             if (pipeLineCreationInfo.pushConstantsSize() > 0) {
                 vpcr = VkPushConstantRange.calloc(1, stack)
-                        .stageFlags(VK_SHADER_STAGE_VERTEX_BIT)
+                        .stageFlags(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
                         .offset(0)
                         .size(pipeLineCreationInfo.pushConstantsSize());
             }
@@ -161,7 +161,7 @@ public class Pipeline {
     }
 
     public record PipeLineCreationInfo(long vkRenderPass, ShaderProgram shaderProgram, int numColorAttachments,
-                                       boolean hasDepthAttachment, boolean useBlend,
+                                       boolean hasDepthAttachment, boolean depthWriteEnable, boolean useBlend,
                                        int pushConstantsSize, VertexInputStateInfo viInputStateInfo,
                                        DescriptorSetLayout[] descriptorSetLayouts) {
         public void cleanup() {

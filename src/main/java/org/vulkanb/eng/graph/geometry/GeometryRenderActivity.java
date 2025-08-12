@@ -4,6 +4,7 @@ import org.lwjgl.system.MemoryStack;
 import org.lwjgl.util.shaderc.Shaderc;
 import org.lwjgl.vulkan.*;
 import org.vulkanb.eng.EngineProperties;
+import java.nio.ByteBuffer;
 import org.vulkanb.eng.graph.*;
 import org.vulkanb.eng.graph.vk.*;
 import org.vulkanb.eng.scene.Scene;
@@ -25,11 +26,13 @@ public class GeometryRenderActivity {
     private final MemoryBarrier memoryBarrier;
     private final PipelineCache pipelineCache;
     private final Scene scene;
+    private float time;
 
     private DescriptorPool descriptorPool;
     private DescriptorSetLayout[] geometryDescriptorSetLayouts;
     private DescriptorSet.StorageDescriptorSet materialsDescriptorSet;
     private Pipeline pipeLine;
+    private Pipeline transparentPipeLine;
     private DescriptorSet.UniformDescriptorSet projMatrixDescriptorSet;
     private VulkanBuffer projMatrixUniform;
     private ShaderProgram shaderProgram;
@@ -54,11 +57,13 @@ public class GeometryRenderActivity {
         createDescriptorPool();
         createDescriptorSets(numImages, globalBuffers);
         createPipeline();
+        createTransparentPipeline();
         VulkanUtils.copyMatrixToBuffer(projMatrixUniform, scene.getProjection().getProjectionMatrix());
         memoryBarrier = new MemoryBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT);
     }
 
     public void cleanup() {
+        transparentPipeLine.cleanup();
         pipeLine.cleanup();
         Arrays.asList(viewMatricesBuffer).forEach(VulkanBuffer::cleanup);
         projMatrixUniform.cleanup();
@@ -116,9 +121,18 @@ public class GeometryRenderActivity {
     private void createPipeline() {
         Pipeline.PipeLineCreationInfo pipeLineCreationInfo = new Pipeline.PipeLineCreationInfo(
                 geometryFrameBuffer.getRenderPass().getVkRenderPass(), shaderProgram, GeometryAttachments.NUMBER_COLOR_ATTACHMENTS,
-                true, true, 0,
+                true, true, false, 8,
                 new InstancedVertexBufferStructure(), geometryDescriptorSetLayouts);
         pipeLine = new Pipeline(pipelineCache, pipeLineCreationInfo);
+        pipeLineCreationInfo.cleanup();
+    }
+
+    private void createTransparentPipeline() {
+        Pipeline.PipeLineCreationInfo pipeLineCreationInfo = new Pipeline.PipeLineCreationInfo(
+                geometryFrameBuffer.getRenderPass().getVkRenderPass(), shaderProgram, GeometryAttachments.NUMBER_COLOR_ATTACHMENTS,
+                true, false, true, 8,
+                new InstancedVertexBufferStructure(), geometryDescriptorSetLayouts);
+        transparentPipeLine = new Pipeline(pipelineCache, pipeLineCreationInfo);
         pipeLineCreationInfo.cleanup();
     }
 
@@ -224,8 +238,14 @@ public class GeometryRenderActivity {
             LongBuffer instanceBuffer = stack.mallocLong(1);
             LongBuffer offsets = stack.mallocLong(1).put(0, 0L);
 
+            ByteBuffer pushConstantBuffer = stack.malloc(8);
+
             // Draw commands for non animated entities
             if (globalBuffers.getNumIndirectCommands() > 0) {
+                pushConstantBuffer.putFloat(0, time);
+                pushConstantBuffer.putInt(4, 0); // isWaterPass = false
+                vkCmdPushConstants(cmdHandle, pipeLine.getVkPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushConstantBuffer);
+
                 vertexBuffer.put(0, globalBuffers.getVerticesBuffer().getBuffer());
                 instanceBuffer.put(0, globalBuffers.getInstanceDataBuffers()[idx].getBuffer());
 
@@ -234,6 +254,16 @@ public class GeometryRenderActivity {
                 vkCmdBindIndexBuffer(cmdHandle, globalBuffers.getIndicesBuffer().getBuffer(), 0, VK_INDEX_TYPE_UINT32);
                 VulkanBuffer staticIndirectBuffer = globalBuffers.getIndirectBuffer();
                 vkCmdDrawIndexedIndirect(cmdHandle, staticIndirectBuffer.getBuffer(), 0, globalBuffers.getNumIndirectCommands(),
+                        GlobalBuffers.IND_COMMAND_STRIDE);
+            }
+
+            // Draw transparent entities
+            if (globalBuffers.getNumTransparentIndirectCommands() > 0) {
+                pushConstantBuffer.putInt(4, 1); // isWaterPass = true
+                vkCmdPushConstants(cmdHandle, transparentPipeLine.getVkPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, pushConstantBuffer);
+                vkCmdBindPipeline(cmdHandle, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeLine.getVkPipeline());
+                VulkanBuffer transparentIndirectBuffer = globalBuffers.getTransparentIndirectBuffer();
+                vkCmdDrawIndexedIndirect(cmdHandle, transparentIndirectBuffer.getBuffer(), 0, globalBuffers.getNumTransparentIndirectCommands(),
                         GlobalBuffers.IND_COMMAND_STRIDE);
             }
 
@@ -258,6 +288,7 @@ public class GeometryRenderActivity {
     }
 
     public void render() {
+        time += 0.01f;
         int idx = swapChain.getCurrentFrame();
         VulkanUtils.copyMatrixToBuffer(viewMatricesBuffer[idx], scene.getCamera().getViewMatrix());
     }
